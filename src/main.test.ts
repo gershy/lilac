@@ -1,10 +1,9 @@
 import { assertEqual } from '../build/utils.test.ts';
-import './main.ts';
-import { Context, Garden, Lilac, Registry, TfEntity, TfResource } from './main.ts';
-import { rootEnt } from '@gershy/disk';
-import path from 'node:path';
+import { Context, Garden, Lilac, Registry, PetalTerraform } from './main.ts';
+import { Fact, rootFact } from '@gershy/disk';
 import Logger from './util/logger.ts';
-
+import { getClsName } from '@gershy/clearing';
+const { Resource } = PetalTerraform;
 
 // Type testing
 (async () => {
@@ -17,7 +16,41 @@ import Logger from './util/logger.ts';
   
 })();
 
+// Test cases
 (async () => {
+  
+  const isolated = async (fn: (fact: Fact) => Promise<void>) => {
+    
+    let fact: null | Fact = null;
+    try {
+      
+      fact = await rootFact.kid([ import.meta.dirname, '.isolatedTest' ], { newTx: true });
+      await fn(fact);
+      
+    } finally {
+      
+      await fact?.rem();
+      fact?.tx.end();
+      
+    }
+    
+  };
+  const getSubtree = async (ent: Fact, enc: 'bin' | 'str' | 'json') => {
+    
+    // TODO: HEEERE looks like `terraform init` generally works, but I think it downloads some aws
+    // provider binaries and these show up in the `getSubtree`, get read as very long strings, and
+    // blow shit up!! Need to test `grow` results without reading full subtree??
+    const [ data, kids ] = await Promise.all([
+      
+      ent.getData(enc as any),
+      await ent.getKids()
+        .then(kids => Promise[allObj](kids[map](kid => getSubtree(kid, enc))))
+      
+    ]);
+    
+    return { data, kids };
+    
+  };
   
   const cases = [
     
@@ -25,7 +58,7 @@ import Logger from './util/logger.ts';
       name: 'basic terraform gen',
       fn: async () => {
         
-        const tf = new TfResource('awsWafv2WebAcl', 'happyWaf', {
+        const tf = new Resource('awsWafv2WebAcl', 'happyWaf', {
           
           name: `aaa-coolFirewall`,
           scope: 'cloudfront'[upper](),
@@ -65,7 +98,6 @@ import Logger from './util/logger.ts';
         });
         
         const r = await tf.getResult();
-        console.log(r);
         assertEqual(r, String[baseline](`
           | resource "aws_wafv2_web_acl" "happy_waf" {
           |   name = "aaa-coolFirewall"
@@ -104,30 +136,31 @@ import Logger from './util/logger.ts';
     },
     {
       name: 'garden growth',
-      fn: async () => {
+      fn: () => isolated(async fact => {
         
         class MyLilac extends Lilac {
           
-          public async * getTfEntities(ctx: Context) {
+          public async * getPetals(ctx: Context) {
             
-            const x = new TfResource('testType0', 'testHandle', {
+            const x = new Resource('testType0', 'testHandle', {
               abc: 123,
-              def: 456
+              def: 456,
+              cls: getClsName(this)
             });
             yield x;
             
-            yield new TfResource('testType1', 'testHandle', {
+            yield new Resource('testType1', 'testHandle', {
               testProp0: 111,
               testProp1: 'aaa',
               testProp2: {
                 testProp3: 'x',
                 testProp4: 'y'
               },
-              $testProp5$0: {
+              '$testProp5.0': {
                 testProp6: 'yolo',
                 testProp7: 'haha'
               },
-              $testProp5$1: {
+              '$testProp5.1': {
                 testProp8: x.tfRefp('abc'),
                 testProp9: x.tfRefp('def')
               }
@@ -142,16 +175,16 @@ import Logger from './util/logger.ts';
           MyLilac: { real: MyLilac, test: MyLilacTest }
         });
         
-        const gardenFp = rootEnt.kid(path.join(import.meta.dirname, '..', 'config'));
+        const gardenFact = fact.kid([ 'terraform' ]);
         const garden = new Garden({
           
           name: 'hi',
+          fact: gardenFact,
           
-          logger: new Logger('gardenTest'),
-          fp: gardenFp,
+          logger: Logger.dummy,
           aws: {
-            accountId: 'lol',
-            accessKey: { id: 'lol', '!secret': 'lol' },
+            accountId: 'aws-acct-id',
+            accessKey: { id: 'aws-key-id', '!secret': 'aws-key-secret' },
             region: 'us-east-1'
           },
           registry,
@@ -167,8 +200,162 @@ import Logger from './util/logger.ts';
           }
           
         });
+        await garden.grow('real');
         
-      }
+        const subtree = await getSubtree(gardenFact, 'str');
+        assertEqual(subtree, {
+          data: '',
+          kids: {
+            boot: {
+              data: '',
+              kids: {
+                
+                'creds.ini': {
+                  data: String[baseline](`
+                    | [default]
+                    | aws_region            = us-east-1
+                    | aws_access_key_id     = aws-key-id
+                    | aws_secret_access_key = aws-key-secret
+                  `),
+                  kids: {}
+                },
+                'main.tf': {
+                  data: String[baseline](`
+                    | terraform {
+                    |   required_providers {
+                    |     aws = {
+                    |       source  = "hashicorp/aws"
+                    |       version = "~> 5.0"
+                    |     }
+                    |   }
+                    | }
+                    | provider "aws" {
+                    |   shared_credentials_files = [ "creds.ini" ]
+                    |   profile                  = "default"
+                    |   region                   = "ca-central-1"
+                    | }
+                    | resource "aws_s3_bucket" "tf_state" {
+                    |   bucket = "aaa-tf-state"
+                    | }
+                    | resource "aws_s3_bucket_ownership_controls" "tf_state" {
+                    |   bucket = aws_s3_bucket.tf_state.bucket
+                    |   rule {
+                    |     object_ownership = "ObjectWriter"
+                    |   }
+                    | }
+                    | resource "aws_s3_bucket_acl" "tf_state" {
+                    |   bucket = aws_s3_bucket.tf_state.bucket
+                    |   acl = "private"
+                    |   depends_on = [ aws_s3_bucket_ownership_controls.tf_state ]
+                    | }
+                    | resource "aws_dynamodb_table" "tf_state" {
+                    |   name         = "aaa-tf-state"
+                    |   billing_mode = "PAY_PER_REQUEST"
+                    |   hash_key     = "LockID"
+                    |   attribute {
+                    |     name = "LockID"
+                    |     type = "S"
+                    |   }
+                    | }
+                  `),
+                  kids: {}
+                }
+                
+              }
+            },
+            main: {
+              data: '',
+              kids: {
+                
+                'creds.ini': {
+                  data: String[baseline](`
+                    | [default]
+                    | aws_region            = us-east-1
+                    | aws_access_key_id     = aws-key-id
+                    | aws_secret_access_key = aws-key-secret
+                  `),
+                  kids: {}
+                },
+                'main.tf': {
+                  data: String[baseline](`
+                    | terraform {
+                    |   required_providers {
+                    |     aws = {
+                    |       source = "hashicorp/aws"
+                    |       version = "~> 5.0"
+                    |     }
+                    |   }
+                    |   backend s3 {
+                    |     region = "us-east-1"
+                    |     encrypt = true
+                    |     bucket = "aaa-tf-state"
+                    |     key = "tf"
+                    |     dynamodb_table = "aaa-tf-state"
+                    |     shared_credentials_files = [ "creds.ini" ]
+                    |     profile = "default"
+                    |   }
+                    | }
+                    | provider "aws" {
+                    |   shared_credentials_files = [ "creds.ini" ]
+                    |   profile = "default"
+                    |   region = "ca-central-1"
+                    |   alias = "ca_central_1"
+                    | }
+                    | provider "aws" {
+                    |   shared_credentials_files = [ "creds.ini" ]
+                    |   profile = "default"
+                    |   region = "us-east-1"
+                    | }
+                    | provider "aws" {
+                    |   shared_credentials_files = [ "creds.ini" ]
+                    |   profile = "default"
+                    |   region = "us-east-2"
+                    |   alias = "us_east_2"
+                    | }
+                    | provider "aws" {
+                    |   shared_credentials_files = [ "creds.ini" ]
+                    |   profile = "default"
+                    |   region = "us-west-1"
+                    |   alias = "us_west_1"
+                    | }
+                    | provider "aws" {
+                    |   shared_credentials_files = [ "creds.ini" ]
+                    |   profile = "default"
+                    |   region = "us-west-2"
+                    |   alias = "us_west_2"
+                    | }
+                    | resource "test_type0" "test_handle" {
+                    |   abc = 123
+                    |   def = 456
+                    |   cls = "MyLilac"
+                    | }
+                    | resource "test_type1" "test_handle" {
+                    |   test_prop0 = 111
+                    |   test_prop1 = "aaa"
+                    |   test_prop2 = {
+                    |     test_prop3 = "x"
+                    |     test_prop4 = "y"
+                    |   }
+                    |   test_prop5 {
+                    |     test_prop6 = "yolo"
+                    |     test_prop7 = "haha"
+                    |   }
+                    |   test_prop5 {
+                    |     test_prop8 = test_type0.test_handle.abc
+                    |     test_prop9 = test_type0.test_handle.def
+                    |   }
+                    | }
+                    | 
+                  `),
+                  kids: {}
+                }
+                
+              },
+            }
+          }
+        });
+        
+      })
     }
     
   ];

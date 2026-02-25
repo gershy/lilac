@@ -57,9 +57,9 @@ export default class Logger {
   public static dummy = {
     getTraceId() { return ''; },
     log() {},
-    child() { return Logger.dummy; },
+    kid() { return Logger.dummy; },
     scope(...args) { return args.at(-1)(Logger.dummy); }
-  } as unknown as Logger;
+  } as any as Logger;
   
   private format(v: any /* should not have cycles */, seen = new Map<any, Json>()): Json {
     
