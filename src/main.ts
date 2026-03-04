@@ -9,6 +9,8 @@
 
 // Can region be dealt with any better??
 
+// Support test-mode (Flowers need to be able to do setup, share config, write to volumes, etc)
+
 import { PetalTerraform } from './petal/terraform/terraform.ts';
 import Logger from './util/logger.ts';
 import { Fact } from '@gershy/disk';
@@ -40,9 +42,9 @@ export type Context = {
   
 };
 
-export class Lilac {
+export class Flower {
   constructor() {}
-  public * getDependencies(): Generator<Lilac> {
+  public * getDependencies(): Generator<Flower> {
     yield this;
   }
   public getPetals(ctx: Context): Iterable<PetalTerraform.Base> | AsyncIterable<PetalTerraform.Base> {
@@ -50,22 +52,22 @@ export class Lilac {
   }
 };
 
-type RegistryLilacs<R extends Registry<any>, M extends 'real' | 'test'> = R extends Registry<infer Lilacs>
-  ? { [K in keyof Lilacs]: Lilacs[K][M] }
+type RegistryFlowers<R extends Registry<any>, M extends 'real' | 'test'> = R extends Registry<infer Flowers>
+  ? { [K in keyof Flowers]: Flowers[K][M] }
   : never;
 
-export class Registry<Lilacs extends Obj<{ real: typeof Lilac, test: typeof Lilac }> = Obj<never>> {
+export class Registry<Flowers extends Obj<{ real: typeof Flower, test: typeof Flower }> = Obj<never>> {
   
-  private lilacs: Lilacs;
-  constructor(lilacs: Lilacs) {
-    this.lilacs = {}[merge](lilacs);
+  private flowers: Flowers;
+  constructor(flowers: Flowers) {
+    this.flowers = {}[merge](flowers);
   }
   
-  add<MoreLilacs extends Obj<{ real: typeof Lilac, test: typeof Lilac }>>(lilacs: MoreLilacs): Registry<Omit<Lilacs, keyof MoreLilacs> & MoreLilacs> {
-    return new Registry({ ...this.lilacs, ...lilacs } as any);
+  add<MoreFlowers extends Obj<{ real: typeof Flower, test: typeof Flower }>>(flowers: MoreFlowers): Registry<Omit<Flowers, keyof MoreFlowers> & MoreFlowers> {
+    return new Registry({ ...this.flowers, ...flowers } as any);
   }
-  get<Mode extends 'real' | 'test'>(mode: Mode): RegistryLilacs<Registry<Lilacs>, Mode> {
-    return this.lilacs[map]((v) => v[mode]);
+  get<Mode extends 'real' | 'test'>(mode: Mode): RegistryFlowers<Registry<Flowers>, Mode> {
+    return this.flowers[map]((v) => v[mode]);
   }
   
 };
@@ -76,7 +78,7 @@ export class Garden<Reg extends Registry<any>> {
   
   private ctx: Context;
   private registry: Reg;
-  private define: (ctx: Context, lilacs: RegistryLilacs<Reg, 'real' | 'test'>) => Iterable<Lilac> | AsyncIterable<Lilac>;
+  private define: (ctx: Context, flowers: RegistryFlowers<Reg, 'real' | 'test'>) => Iterable<Flower> | AsyncIterable<Flower>;
   constructor(args: {
     
     name: string, // Name of the system/garden
@@ -106,16 +108,16 @@ export class Garden<Reg extends Registry<any>> {
   
   private async * getPetals<Mode extends 'real' | 'test'>(mode: Mode) {
     
-    const seenLilacs = new Set<Lilac>();
+    const seenFlowers = new Set<Flower>();
     const seenPetals = new Set<PetalTerraform.Base>();
-    for await (const topLevelLilac of this.define(this.ctx, this.registry.get(mode) as RegistryLilacs<Reg, Mode>)) {
+    for await (const topLevelFlower of this.define(this.ctx, this.registry.get(mode) as RegistryFlowers<Reg, Mode>)) {
       
-      for (const lilac of topLevelLilac.getDependencies()) {
+      for (const flower of topLevelFlower.getDependencies()) {
         
-        if (seenLilacs.has(lilac)) continue;
-        seenLilacs.add(lilac);
+        if (seenFlowers.has(flower)) continue;
+        seenFlowers.add(flower);
         
-        for await (const petal of lilac.getPetals(this.ctx)) {
+        for await (const petal of flower.getPetals(this.ctx)) {
           
           if (seenPetals.has(petal)) continue;
           yield petal;
@@ -311,6 +313,11 @@ export class Garden<Reg extends Registry<any>> {
   
   public async grow(mode: 'real' | 'test') {
     
+    // - Avoid tf preventing deletions on populated dbs - e.g. s3 tf needs "force_destroy = true"
+    // - Note `terraform init` generates a ".terraform.lock.hcl" file - this should be checked into
+    //   consumer's source control! May need consumers to provide an optional `repoFact`, and if
+    //   present after `terraform init` we can copy the ".terraform.lock.hcl" file
+    
     // Note that test mode does not involve any iac - it all runs locally
     if (mode === 'test') throw Error('test mode not implemented yet');
     
@@ -320,17 +327,78 @@ export class Garden<Reg extends Registry<any>> {
     const tfLogger = this.ctx.logger.kid('execTf');
     const execTf = {
       
-      init: (fact: Fact, args: { reconfigure: boolean }) => tfLogger.scope('init', {}, async logger => {
-        console.log('RUN TERRAFORM INIT', fact.fsp());
-        const result = await procTerraform(fact, `terraform init${args.reconfigure ? ' -reconfigure' : ''}`);
+      init: (fact: Fact, args?: {}) => tfLogger.scope('init', {}, async logger => {
+        
+        // Consider if we ever want to pass "-reconfigure" and "-migrate-state" options; these are
+        // useful if we are moving backends (e.g. one aws account to another), and want to move our
+        // full iac definition too
+        // TODO: HEEERE
+        // TODO: Copy the ".terraform.lock.hcl" to consumer's source control??
+        // TODO: *Copy* ".terraform.lock.hcl" from consumer's source control into this project??
+        
+        const result = await procTerraform(fact, `terraform init -input=false`);
         logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
-        console.log('TERRAFORM INIT', result);
         return result;
+        
+      }),
+      plan: (fact: Fact, args?: {}) => tfLogger.scope('plan', {}, async logger => {
+        
+        const result = await procTerraform(fact, `terraform plan -input=false`);
+        logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
+        return result;
+        
+      }),
+      apply: (fact: Fact, args?: {}) => tfLogger.scope('apply', {}, async logger => {
+        
+        const result = await procTerraform(fact, `terraform apply -input=false -auto-approve`);
+        logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
+        return result;
+        
       })
       
     };
     
-    const result = await execTf.init(bootFact, { reconfigure: false });
+    type TryWithHealingArgs<T> = {
+      fn: () => Promise<T>,
+      canHeal: (err: any) => boolean,
+      heal: () => Promise<any>
+    };
+    const tryWithHealing = async <T>(args: TryWithHealingArgs<T>): Promise<T> => {
+      
+      const { fn, heal, canHeal } = args;
+      
+      return fn().catch(async err => {
+        if (!canHeal(err)) throw err;
+        await heal();
+        return fn();
+      });
+      
+    };
+    const logicalApply = (args: { bootFact: Fact, mainFact: Fact }) => {
+      
+      return tryWithHealing({
+        
+        fn: () => execTf.apply(args.mainFact),
+        canHeal: err => true,
+        heal: () => tryWithHealing({
+          
+          fn: () => execTf.init(args.mainFact),
+          canHeal: err => true,
+          heal: () => tryWithHealing({
+            
+            fn: () => execTf.apply(args.bootFact),
+            canHeal: err => true,
+            heal: () => execTf.init(args.bootFact)
+            
+          })
+          
+        })
+        
+      });
+      
+    };
+    
+    const result = await execTf.init(bootFact);
     
   }
   

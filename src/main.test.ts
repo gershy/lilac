@@ -1,5 +1,5 @@
-import { assertEqual } from '../build/utils.test.ts';
-import { Context, Garden, Lilac, Registry, PetalTerraform } from './main.ts';
+import { assertEqual, cmpAny } from '../build/utils.test.ts';
+import { Context, Garden, Flower, Registry, PetalTerraform } from './main.ts';
 import { Fact, rootFact } from '@gershy/disk';
 import Logger from './util/logger.ts';
 import { getClsName } from '@gershy/clearing';
@@ -37,9 +37,7 @@ const { Resource } = PetalTerraform;
   };
   const getSubtree = async (ent: Fact, enc: 'bin' | 'str' | 'json') => {
     
-    // TODO: HEEERE looks like `terraform init` generally works, but I think it downloads some aws
-    // provider binaries and these show up in the `getSubtree`, get read as very long strings, and
-    // blow shit up!! Need to test `grow` results without reading full subtree??
+    // Consider - `terraform init` might be quite slow... should it be in these tests??
     const [ data, kids ] = await Promise.all([
       
       ent.getData(enc as any),
@@ -57,6 +55,15 @@ const { Resource } = PetalTerraform;
     {
       name: 'basic terraform gen',
       fn: async () => {
+        
+        // TODO:
+        // - This file should take optional argv aws creds
+        // - Prevent automated isolated cleanup for this next part
+        // - Actually fully apply terraform to aws account, plus `terraform destroy` for cleanup
+        // - Can test various scenarios
+        //   - Deleting populated dbs
+        //   - Mapping dynamic-length lists (dns) to infrastructure (needs multiple `terraform apply` calls)
+        // - Test various error scenarios; add specific text match conditions to `tryWithHealing`
         
         const tf = new Resource('awsWafv2WebAcl', 'happyWaf', {
           
@@ -138,7 +145,7 @@ const { Resource } = PetalTerraform;
       name: 'garden growth',
       fn: () => isolated(async fact => {
         
-        class MyLilac extends Lilac {
+        class MyLilac extends Flower {
           
           public async * getPetals(ctx: Context) {
             
@@ -202,158 +209,158 @@ const { Resource } = PetalTerraform;
         });
         await garden.grow('real');
         
-        const subtree = await getSubtree(gardenFact, 'str');
-        assertEqual(subtree, {
-          data: '',
-          kids: {
-            boot: {
-              data: '',
-              kids: {
-                
-                'creds.ini': {
-                  data: String[baseline](`
-                    | [default]
-                    | aws_region            = us-east-1
-                    | aws_access_key_id     = aws-key-id
-                    | aws_secret_access_key = aws-key-secret
-                  `),
-                  kids: {}
-                },
-                'main.tf': {
-                  data: String[baseline](`
-                    | terraform {
-                    |   required_providers {
-                    |     aws = {
-                    |       source  = "hashicorp/aws"
-                    |       version = "~> 5.0"
-                    |     }
-                    |   }
-                    | }
-                    | provider "aws" {
-                    |   shared_credentials_files = [ "creds.ini" ]
-                    |   profile                  = "default"
-                    |   region                   = "ca-central-1"
-                    | }
-                    | resource "aws_s3_bucket" "tf_state" {
-                    |   bucket = "aaa-tf-state"
-                    | }
-                    | resource "aws_s3_bucket_ownership_controls" "tf_state" {
-                    |   bucket = aws_s3_bucket.tf_state.bucket
-                    |   rule {
-                    |     object_ownership = "ObjectWriter"
-                    |   }
-                    | }
-                    | resource "aws_s3_bucket_acl" "tf_state" {
-                    |   bucket = aws_s3_bucket.tf_state.bucket
-                    |   acl = "private"
-                    |   depends_on = [ aws_s3_bucket_ownership_controls.tf_state ]
-                    | }
-                    | resource "aws_dynamodb_table" "tf_state" {
-                    |   name         = "aaa-tf-state"
-                    |   billing_mode = "PAY_PER_REQUEST"
-                    |   hash_key     = "LockID"
-                    |   attribute {
-                    |     name = "LockID"
-                    |     type = "S"
-                    |   }
-                    | }
-                  `),
-                  kids: {}
-                }
-                
-              }
+        const gardenKids = await gardenFact.getKids();
+        assertEqual(
+          gardenKids,
+          { boot: cmpAny, main: cmpAny }
+        );
+        
+        const { boot: bootKids, main: mainKids } = await Promise[allObj](gardenKids[map](kid => kid.getKids()));
+        assertEqual(
+          { bootKids, mainKids },
+          {
+            bootKids: { '.terraform': cmpAny, '.terraform.lock.hcl': cmpAny, '.terraform.log': cmpAny, 'creds.ini': cmpAny, 'main.tf': cmpAny },
+            mainKids: {                                                                                'creds.ini': cmpAny, 'main.tf': cmpAny }
+          }
+        );
+        
+        // Read the creds.ini and main.tf from both boot and main
+        const tfData = await Promise[allObj]({ bootKids, mainKids }
+          [map](kids => Promise[allObj](
+            kids
+              [slice]([ 'creds.ini', 'main.tf' ])
+              [map](kid => kid.getData('str'))
+          )
+        ));
+        assertEqual(
+          tfData,
+          { 
+            bootKids: {
+              'creds.ini': String[baseline](`
+                | [default]
+                | aws_region            = us-east-1
+                | aws_access_key_id     = aws-key-id
+                | aws_secret_access_key = aws-key-secret
+              `),
+              'main.tf': String[baseline](`
+                | terraform {
+                |   required_providers {
+                |     aws = {
+                |       source  = "hashicorp/aws"
+                |       version = "~> 5.0"
+                |     }
+                |   }
+                | }
+                | provider "aws" {
+                |   shared_credentials_files = [ "creds.ini" ]
+                |   profile                  = "default"
+                |   region                   = "ca-central-1"
+                | }
+                | resource "aws_s3_bucket" "tf_state" {
+                |   bucket = "aaa-tf-state"
+                | }
+                | resource "aws_s3_bucket_ownership_controls" "tf_state" {
+                |   bucket = aws_s3_bucket.tf_state.bucket
+                |   rule {
+                |     object_ownership = "ObjectWriter"
+                |   }
+                | }
+                | resource "aws_s3_bucket_acl" "tf_state" {
+                |   bucket = aws_s3_bucket.tf_state.bucket
+                |   acl = "private"
+                |   depends_on = [ aws_s3_bucket_ownership_controls.tf_state ]
+                | }
+                | resource "aws_dynamodb_table" "tf_state" {
+                |   name         = "aaa-tf-state"
+                |   billing_mode = "PAY_PER_REQUEST"
+                |   hash_key     = "LockID"
+                |   attribute {
+                |     name = "LockID"
+                |     type = "S"
+                |   }
+                | }
+              `)
             },
-            main: {
-              data: '',
-              kids: {
-                
-                'creds.ini': {
-                  data: String[baseline](`
-                    | [default]
-                    | aws_region            = us-east-1
-                    | aws_access_key_id     = aws-key-id
-                    | aws_secret_access_key = aws-key-secret
-                  `),
-                  kids: {}
-                },
-                'main.tf': {
-                  data: String[baseline](`
-                    | terraform {
-                    |   required_providers {
-                    |     aws = {
-                    |       source = "hashicorp/aws"
-                    |       version = "~> 5.0"
-                    |     }
-                    |   }
-                    |   backend s3 {
-                    |     region = "us-east-1"
-                    |     encrypt = true
-                    |     bucket = "aaa-tf-state"
-                    |     key = "tf"
-                    |     dynamodb_table = "aaa-tf-state"
-                    |     shared_credentials_files = [ "creds.ini" ]
-                    |     profile = "default"
-                    |   }
-                    | }
-                    | provider "aws" {
-                    |   shared_credentials_files = [ "creds.ini" ]
-                    |   profile = "default"
-                    |   region = "ca-central-1"
-                    |   alias = "ca_central_1"
-                    | }
-                    | provider "aws" {
-                    |   shared_credentials_files = [ "creds.ini" ]
-                    |   profile = "default"
-                    |   region = "us-east-1"
-                    | }
-                    | provider "aws" {
-                    |   shared_credentials_files = [ "creds.ini" ]
-                    |   profile = "default"
-                    |   region = "us-east-2"
-                    |   alias = "us_east_2"
-                    | }
-                    | provider "aws" {
-                    |   shared_credentials_files = [ "creds.ini" ]
-                    |   profile = "default"
-                    |   region = "us-west-1"
-                    |   alias = "us_west_1"
-                    | }
-                    | provider "aws" {
-                    |   shared_credentials_files = [ "creds.ini" ]
-                    |   profile = "default"
-                    |   region = "us-west-2"
-                    |   alias = "us_west_2"
-                    | }
-                    | resource "test_type0" "test_handle" {
-                    |   abc = 123
-                    |   def = 456
-                    |   cls = "MyLilac"
-                    | }
-                    | resource "test_type1" "test_handle" {
-                    |   test_prop0 = 111
-                    |   test_prop1 = "aaa"
-                    |   test_prop2 = {
-                    |     test_prop3 = "x"
-                    |     test_prop4 = "y"
-                    |   }
-                    |   test_prop5 {
-                    |     test_prop6 = "yolo"
-                    |     test_prop7 = "haha"
-                    |   }
-                    |   test_prop5 {
-                    |     test_prop8 = test_type0.test_handle.abc
-                    |     test_prop9 = test_type0.test_handle.def
-                    |   }
-                    | }
-                    | 
-                  `),
-                  kids: {}
-                }
-                
-              },
+            mainKids: {
+              'creds.ini': String[baseline](`
+                | [default]
+                | aws_region            = us-east-1
+                | aws_access_key_id     = aws-key-id
+                | aws_secret_access_key = aws-key-secret
+              `),
+              'main.tf': String[baseline](`
+                | terraform {
+                |   required_providers {
+                |     aws = {
+                |       source = "hashicorp/aws"
+                |       version = "~> 5.0"
+                |     }
+                |   }
+                |   backend s3 {
+                |     region = "us-east-1"
+                |     encrypt = true
+                |     bucket = "aaa-tf-state"
+                |     key = "tf"
+                |     dynamodb_table = "aaa-tf-state"
+                |     shared_credentials_files = [ "creds.ini" ]
+                |     profile = "default"
+                |   }
+                | }
+                | provider "aws" {
+                |   shared_credentials_files = [ "creds.ini" ]
+                |   profile = "default"
+                |   region = "ca-central-1"
+                |   alias = "ca_central_1"
+                | }
+                | provider "aws" {
+                |   shared_credentials_files = [ "creds.ini" ]
+                |   profile = "default"
+                |   region = "us-east-1"
+                | }
+                | provider "aws" {
+                |   shared_credentials_files = [ "creds.ini" ]
+                |   profile = "default"
+                |   region = "us-east-2"
+                |   alias = "us_east_2"
+                | }
+                | provider "aws" {
+                |   shared_credentials_files = [ "creds.ini" ]
+                |   profile = "default"
+                |   region = "us-west-1"
+                |   alias = "us_west_1"
+                | }
+                | provider "aws" {
+                |   shared_credentials_files = [ "creds.ini" ]
+                |   profile = "default"
+                |   region = "us-west-2"
+                |   alias = "us_west_2"
+                | }
+                | resource "test_type0" "test_handle" {
+                |   abc = 123
+                |   def = 456
+                |   cls = "MyLilac"
+                | }
+                | resource "test_type1" "test_handle" {
+                |   test_prop0 = 111
+                |   test_prop1 = "aaa"
+                |   test_prop2 = {
+                |     test_prop3 = "x"
+                |     test_prop4 = "y"
+                |   }
+                |   test_prop5 {
+                |     test_prop6 = "yolo"
+                |     test_prop7 = "haha"
+                |   }
+                |   test_prop5 {
+                |     test_prop8 = test_type0.test_handle.abc
+                |     test_prop9 = test_type0.test_handle.def
+                |   }
+                | }
+                | 
+              `)
             }
           }
-        });
+        );
         
       })
     }
