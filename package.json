@@ -46,6 +46,7 @@
     "npm.pub": "npm run test && npm run build && npm publish --access public"
   },
   "dependencies": {
-    "@gershy/disk": "^0.0.7"
+    "@gershy/disk": "^0.0.7",
+    "@gershy/util-nodejs-proc": "^0.0.1"
   }
 }

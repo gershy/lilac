@@ -1,5 +1,5 @@
 import { rootFact } from '@gershy/disk';
-import proc, { ProcOpts } from './proc.ts';
+import proc, { ProcOpts } from '@gershy/util-nodejs-proc';
 type Fact = typeof rootFact
 
 export default (fact: Fact, cmd: string, opts?: ProcOpts) => {
