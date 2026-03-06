@@ -1,15 +1,15 @@
 import { rootFact } from '@gershy/disk';
 import proc, { ProcOpts } from './proc.ts';
-type DiskEnt = typeof rootFact
+type Fact = typeof rootFact
 
-export default (fp: DiskEnt, cmd: string, opts?: ProcOpts) => {
+export default (fact: Fact, cmd: string, opts?: ProcOpts) => {
   
   const numTailingTfLogLines = 20;
   
   const writeLog = async (result: string | Obj<Json> | Json[]) => {
     const [ yr, mo, dy, hr, mn, sc, ms ] = new Date().toISOString().match(/([0-9]{4})[-]([0-9]{2})[-]([0-9]{2})[T]([0-9]{2})[:]([0-9]{2})[:]([0-9]{2})[.]([0-9]+)[Z]/)!.slice(1);
     const term = `${cmd.split(' ')[1]}-${yr}${mo}${dy}-${hr}${mn}${sc}`;
-    const logDb = fp.kid([ '.terraform.log', `${term}.txt` ]);
+    const logDb = fact.kid([ '.terraform.log', `${term}.txt` ]);
     await logDb.setData(result);
     return logDb;
   };
@@ -17,7 +17,7 @@ export default (fp: DiskEnt, cmd: string, opts?: ProcOpts) => {
   return proc(cmd, {
     timeoutMs: 0,
     ...opts,
-    cwd: fp,
+    cwd: fact,
     env: { TF_DATA_DIR: '' }
   }).then(
     async result => {

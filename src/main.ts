@@ -25,6 +25,7 @@ export type Context = {
   name: string, // Name of the system/garden
   logger: Logger,
   fact: Fact,
+  patioFact: Fact,
   
   aws: {
     accountId: string,
@@ -83,7 +84,8 @@ export class Garden<Reg extends Registry<any>> {
     
     name: string, // Name of the system/garden
     logger: Logger,
-    fact: Fact,
+    fact: Fact, // The fact within which generated iac will be stored
+    patioFact: Fact, // A subset of generated iac may be intended for source-control (e.g. .terraform.lock.hcl) - this fact should point within a source-controlled repo to maintain any such iac
     
     aws: {
       accountId: string,
@@ -288,6 +290,10 @@ export class Garden<Reg extends Registry<any>> {
               
             };
             
+            const patioTfHclFact = garden.ctx.patioFact.kid([ 'main', '.terraform.lock.hcl' ]);
+            const tfHclData = await patioTfHclFact.getData('str');
+            if (tfHclData) await fact.kid([ '.terraform.lock.hcl' ]).setData(tfHclData);
+            
             for await (const petal of iteratePetals()) {
               
               const result = await (async () => {
@@ -311,6 +317,34 @@ export class Garden<Reg extends Registry<any>> {
     
   }
   
+  private terraformInit(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.init', {}, async logger => {
+    
+    // Consider if we ever want to pass "-reconfigure" and "-migrate-state" options; these are
+    // useful if we are moving backends (e.g. one aws account to another), and want to move our
+    // full iac definition too
+    
+    // TODO: Some terraform commands fail when offline - can this be covered up?
+    
+    const result = await procTerraform(fact, `terraform init -input=false`);
+    logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
+    return result;
+    
+  }); }
+  private terraformPlan(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.plan', {}, async logger => {
+    
+    const result = await procTerraform(fact, `terraform plan -input=false`);
+    logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
+    return result;
+    
+  }); }
+  private terraformApply(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.apply', {}, async logger => {
+    
+    const result = await procTerraform(fact, `terraform apply -input=false -auto-approve`);
+    logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
+    return result;
+    
+  }); }
+  
   public async grow(mode: 'real' | 'test') {
     
     // - Avoid tf preventing deletions on populated dbs - e.g. s3 tf needs "force_destroy = true"
@@ -322,41 +356,6 @@ export class Garden<Reg extends Registry<any>> {
     if (mode === 'test') throw Error('test mode not implemented yet');
     
     const { bootFact, mainFact } = await this.prepare();
-    
-    // These terraform shell helpers should correspond essentially 1:1 with the `terraform` cmd
-    const tfLogger = this.ctx.logger.kid('execTf');
-    const execTf = {
-      
-      init: (fact: Fact, args?: {}) => tfLogger.scope('init', {}, async logger => {
-        
-        // Consider if we ever want to pass "-reconfigure" and "-migrate-state" options; these are
-        // useful if we are moving backends (e.g. one aws account to another), and want to move our
-        // full iac definition too
-        // TODO: HEEERE
-        // TODO: Copy the ".terraform.lock.hcl" to consumer's source control??
-        // TODO: *Copy* ".terraform.lock.hcl" from consumer's source control into this project??
-        
-        const result = await procTerraform(fact, `terraform init -input=false`);
-        logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
-        return result;
-        
-      }),
-      plan: (fact: Fact, args?: {}) => tfLogger.scope('plan', {}, async logger => {
-        
-        const result = await procTerraform(fact, `terraform plan -input=false`);
-        logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
-        return result;
-        
-      }),
-      apply: (fact: Fact, args?: {}) => tfLogger.scope('apply', {}, async logger => {
-        
-        const result = await procTerraform(fact, `terraform apply -input=false -auto-approve`);
-        logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
-        return result;
-        
-      })
-      
-    };
     
     type TryWithHealingArgs<T> = {
       fn: () => Promise<T>,
@@ -378,17 +377,22 @@ export class Garden<Reg extends Registry<any>> {
       
       return tryWithHealing({
         
-        fn: () => execTf.apply(args.mainFact),
-        canHeal: err => true,
+        fn: () => this.terraformApply(args.mainFact),
+        canHeal: err => (err.output as string ?? '')[has]('please run "terraform init"'),
         heal: () => tryWithHealing({
           
-          fn: () => execTf.init(args.mainFact),
+          fn: async () => {
+            await this.terraformInit(args.mainFact);
+            await this.ctx.patioFact.kid([ 'main', '.terraform.lock.hcl' ]).setData(
+              await args.mainFact.kid([ '.terraform.lock.hcl' ]).getData('str')
+            );
+          },
           canHeal: err => true,
           heal: () => tryWithHealing({
             
-            fn: () => execTf.apply(args.bootFact),
+            fn: () => this.terraformApply(args.bootFact),
             canHeal: err => true,
-            heal: () => execTf.init(args.bootFact)
+            heal: () => this.terraformInit(args.bootFact)
             
           })
           
@@ -398,7 +402,8 @@ export class Garden<Reg extends Registry<any>> {
       
     };
     
-    const result = await execTf.init(bootFact);
+    const result = await logicalApply({ mainFact, bootFact });
+    //const result = await execTf.init(bootFact);
     
   }
   

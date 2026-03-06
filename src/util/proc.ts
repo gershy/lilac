@@ -4,7 +4,7 @@ import { then } from '@gershy/clearing';
 import { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
 import { rootFact } from '@gershy/disk';
-type DiskEnt = typeof rootFact;
+type DiskFact = typeof rootFact;
 
 const stripAnsi = (str: string) => str.replace(/\u001B\[[0-9]+m/g, ''); // Removes ansi
 
@@ -15,7 +15,7 @@ export type ProcOpts = {
   timeoutMs?: number,
   bufferOutput?: boolean,
   env?: Obj<string>,
-  cwd?: DiskEnt,
+  cwd?: DiskFact,
   onInput?: (type: 'init' | 'out' | 'err', data: string) => void
 };
 export default (cmd: string, opts?: ProcOpts): RunInShellReturnValue => {
