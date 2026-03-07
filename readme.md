@@ -20,7 +20,7 @@ Flowers are logical infrastructural service. Some examples of Flowers are:
 5. A blob storage database
 6. A queue
 
-The purpose of an infrastructural service is to provide some sort of systems behaviour. In implementing systems, we often have to think about additional, non-behavioural systems concerns - for example, access controls. A Lilac Resource represents only the distilled systems behaviour - when working with Lilac Resources, non-behavioural concerns are abstracted away.
+The purpose of an infrastructural service is to provide some sort of systems behaviour. In implementing systems, we often have to think about additional, non-behavioural systems concerns - for example, access controls. A Lilac Resource represents only the distilled systems behaviour - when working with Lilac Resources, non-behavioural concerns are abstracted away. Lilac has opinions on how to implement these non-behavioural concerns.
 
 ## 2. Lilac Comms (TODO: Rename "comms" -> "bees" / "pollinators" / "pollen"?)
 
