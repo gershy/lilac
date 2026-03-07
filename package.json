@@ -1,19 +1,22 @@
 {
-  "name": "@gershy/TODO",
-  "version": "0.0.2",
-  "description": "TODO",
+  "name": "@gershy/lilac",
+  "version": "0.0.3",
+  "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
-    "TODO"
+    "lilac",
+    "luscious",
+    "iac",
+    "infrastructure"
   ],
   "author": "Gershom Maes",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gershy/TODO.git"
+    "url": "git+https://github.com/gershy/lilac.git"
   },
   "bugs": {
-    "url": "https://github.com/gershy/TODO/issues"
+    "url": "https://github.com/gershy/lilac/issues"
   },
-  "homepage": "https://github.com/gershy/TODO#readme",
+  "homepage": "https://github.com/gershy/lilac#readme",
   "license": "ISC",
   "peerDependencies": {
     "@gershy/clearing": "^0.0.24"
