@@ -177,7 +177,7 @@ const { Resource } = PetalTerraform;
         MyLilac: { real: MyLilac, test: MyLilacTest }
       });
       
-      const patioFact = fact.kid([ 'repo' ]);
+      const patioFact = fact.kid([ 'repo', 'patio' ]);
       const gardenFact = fact.kid([ 'repo', 'terraform' ]);
       const garden = new Garden({
         
@@ -212,7 +212,22 @@ const { Resource } = PetalTerraform;
         { boot: cmpAny, main: cmpAny }
       );
       
-      console.log(await patioFact.getKids());
+      // TODO: HEEERE test the patio creation - it won't have any data currently as `logicalApply`
+      // isn't being used......... need something like a dummy terraform target
+      // const expandFact = async (fact: Fact) => {
+      //   
+      //   const [ data, kids ] = await Promise.all([
+      //     '<data?>',
+      //     // fact.getData('str'),
+      //     fact.getKids().then(kids => Promise[allObj](
+      //       kids[map](kid => expandFact(kid))
+      //     ))
+      //   ]);
+      //   
+      //   return kids;
+      //   
+      // };
+      // console.log(await expandFact(patioFact));
       
       const { boot: bootKids, main: mainKids } = await Promise[allObj](gardenKids[map](kid => kid.getKids()));
       assertEqual(

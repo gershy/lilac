@@ -34,3 +34,7 @@ Lilac provides an opinion on how to represent systems, but it is unopinionated a
 ## 4. Lilac Registry
 
 The Lilac Registry exhaustively represents the set of Lilac Resource types available. For example, a particular systems primitive (e.g. Temporal) may not have a corresponding Lilac Resource. In such a case, if Temporal is desired, a new Lilac Resource would have to be written for it, and added to the Registry. The Registry also enables development-time testing - a fully mocked Registry can be substituted to the Lilac setup, and the result will be a true-to-production test environment (e.g. local testing).
+
+## 5. The Patio
+
+IAC deploys always involve the creation of infrastructure-describing code, which is abstracted away by Lilac and treated as ephemeral. But sometimes, deploys also involve the creation of files which are expected to be checked into version control. The "patio" is a file pointer that ought to be provided by the consumer, and points to some arbitrary directory in their control, which is checked into version control. Lilac will populate this directory, and pull from it appropriately (in order to reproduce deploys where ephemeral code is generated, and version-controlled code is still version-controlled). Note a good example of a version-controlled IAC file is terraform's .terraform.lock.hcl file!

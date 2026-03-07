@@ -391,7 +391,7 @@ export class Garden<Reg extends Registry<any>> {
           heal: () => tryWithHealing({
             
             fn: () => this.terraformApply(args.bootFact),
-            canHeal: err => true,
+            canHeal: err => (err.output as string ?? '')[has]('please run "terraform init"'),
             heal: () => this.terraformInit(args.bootFact)
             
           })
@@ -402,7 +402,10 @@ export class Garden<Reg extends Registry<any>> {
       
     };
     
-    const result = await logicalApply({ mainFact, bootFact });
+    // TODO: HEEERE do `logicalApply` instead!
+    await this.terraformInit(bootFact);
+    
+    // const result = await logicalApply({ mainFact, bootFact });
     //const result = await execTf.init(bootFact);
     
   }
