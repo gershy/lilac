@@ -1,7 +1,6 @@
 # Lilac
 
-Lilac is "Luscious Infrastructure Living As Code". It's an opinionated take on typical
-infrastructure-as-code.
+Lilac is "Luscious Infrastructure Living As Code". It's an opinionated take on typical infrastructure-as-code.
 
 Understanding Lilac involves multiple concepts:
 1. Flowers (logical services)
