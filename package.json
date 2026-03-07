@@ -1,6 +1,6 @@
 {
   "name": "@gershy/lilac",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
     "lilac",
@@ -49,7 +49,7 @@
     "npm.pub": "npm run test && npm run build && npm publish --access public"
   },
   "dependencies": {
-    "@gershy/disk": "^0.0.8",
-    "@gershy/util-nodejs-proc": "^0.0.1"
+    "@gershy/disk": "^0.0.9",
+    "@gershy/util-nodejs-proc": "^0.0.2"
   }
 }
