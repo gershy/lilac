@@ -12,7 +12,7 @@
 // Support test-mode (Flowers need to be able to do setup, share config, write to volumes, etc)
 
 import { PetalTerraform } from './petal/terraform/terraform.ts';
-import Logger from './util/logger.ts';
+import Logger from '@gershy/logger';
 import { Fact } from '@gershy/disk';
 import { regions as awsRegions } from './util/aws.ts';
 import { isCls, skip } from '@gershy/clearing';

@@ -1,1 +1,0 @@
-export default (val: string) => val.replace(/([A-Z])/g, '_$1')[lower]();

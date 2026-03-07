@@ -1,7 +1,7 @@
 import { getClsName, isCls } from '@gershy/clearing';
 import slashEscape from '../../util/slashEscape.ts';
-import snakeCase from '../../util/snakeCase.ts';
 import Petal from '../petal.ts';
+import ph from '@gershy/util-phrasing';
 
 export namespace PetalTerraform {
   
@@ -56,15 +56,15 @@ export namespace PetalTerraform {
           
           // Resolve to raw string?
           if (special && isCls(v, String))
-            return [ snakeCase(pcs[0]), ' = ', this.terraformEncode(v[hasHead]('| ') ? v : `| ${v}`) ];
+            return [ ph(pcs[0], 'camel', 'snake'), ' = ', this.terraformEncode(v[hasHead]('| ') ? v : `| ${v}`) ];
           
           // Resolve to nested block?
           if (special && isCls(v, Object))
-            return [ [ snakeCase(pcs[0]), ...pcs.slice(1)[map](pc => snakeCase(pc)) ].join(' '), ' ', this.terraformEncode(v) ];
+            return [ [ ph(pcs[0], 'camel', 'snake'), ...pcs.slice(1)[map](pc => ph(pc, 'camel', 'snake')) ].join(' '), ' ', this.terraformEncode(v) ];
           
           // Resolve anything else to typical property - use the key exactly as provided (to support,
           // e.g., aws format for keys in policies, any other specific format, etc.)
-          return [ snakeCase(pcs[0]), ' = ', this.terraformEncode(v) ];
+          return [ ph(pcs[0], 'camel', 'snake'), ' = ', this.terraformEncode(v) ];
           
         });
         
@@ -94,9 +94,9 @@ export namespace PetalTerraform {
       
       if (!isCls(props, Array)) props = [ props ];
       
-      const base = `${snakeCase(this.getType())}.${snakeCase(this.getHandle())}`;
+      const base = `${ph(this.getType(), 'camel', 'snake')}.${ph(this.getHandle(), 'camel', 'snake')}`;
       return props.length
-        ? `${base}.${props[map](v => snakeCase(v)).join('.')}`
+        ? `${base}.${props[map](v => ph(v, 'camel', 'snake')).join('.')}`
         : base;
       
     }
@@ -149,7 +149,7 @@ export namespace PetalTerraform {
     getHandle() { return this.handle; }
     getProps() { return this.props; }
     async getResultHeader() {
-      return `resource "${snakeCase(this.type)}" "${snakeCase(this.handle)}"`;
+      return `resource "${ph(this.type, 'camel', 'snake')}" "${ph(this.handle, 'camel', 'snake')}"`;
     }
     
   };
@@ -164,7 +164,7 @@ export namespace PetalTerraform {
     }
     getProps() { return this.props; }
     async getResultHeader() {
-      return `provider "${snakeCase(this.name)}"`;
+      return `provider "${ph(this.name, 'camel', 'snake')}"`;
     }
     
   };
@@ -184,7 +184,7 @@ export namespace PetalTerraform {
     getProps() { return this.props; }
     
     async getResultHeader() {
-      return `data "${snakeCase(this.type)}" "${snakeCase(this.handle)}"`;
+      return `data "${ph(this.type, 'camel', 'snake')}" "${ph(this.handle, 'camel', 'snake')}"`;
     }
     tfRef(props: string | string[] = []) {
       return `data.${super.tfRef(props)}`;

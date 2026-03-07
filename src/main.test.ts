@@ -1,7 +1,7 @@
 import { assertEqual, cmpAny } from '../build/utils.test.ts';
 import { Context, Garden, Flower, Registry, PetalTerraform } from './main.ts';
 import { Fact, rootFact } from '@gershy/disk';
-import Logger from './util/logger.ts';
+import Logger from '@gershy/logger';
 import { getClsName } from '@gershy/clearing';
 const { Resource } = PetalTerraform;
 

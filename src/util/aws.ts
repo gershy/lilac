@@ -1,9 +1,9 @@
 import { isCls } from '@gershy/clearing';
-import capitalize from './capitalize.ts';
+import ph from '@gershy/util-phrasing';
 
 export const capitalKeys = (v: any) => {
   if (isCls(v, Array)) return v[map](v => capitalKeys(v));
-  if (isCls(v, Object)) return v[mapk]((val, key) => [ capitalize(key), capitalKeys(val) ]);
+  if (isCls(v, Object)) return v[mapk]((val, key) => [ ph(key, 'camel', 'kamel'), capitalKeys(val) ]);
   return v;
 };
 
