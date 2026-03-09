@@ -1,4 +1,4 @@
-import { inCls, getCls, getClsName } from '@gershy/clearing';
+import { skip, inCls, getCls, getClsName } from '@gershy/clearing';
 
 export const cmpAny = Symbol('@gershy/test/cmp/any');
 
@@ -120,5 +120,27 @@ export const assertEqual = (v0: any, v1: any) => {
   const { equal: eq, ...props } = equal(v0, v1);
   
   if (!eq) throw Error('assert equal')[mod]({ ...props });
+  
+};
+export const testRunner = async (rawCases: { name: string, fn: () => Promise<void> }[]) => {
+  
+  const regStr = skip
+    ?? process.argv.find(v => v.at(0) === '/' && v.at(-1) === '/')
+    ?? '/(?:)/';
+  const reg = new RegExp(regStr.slice('/'.length, -'/'.length));
+  
+  const cases = rawCases.filter(c => reg.test(c.name));
+  const num = cases.length;
+  const tot = rawCases.length;
+  if (num === 0) { console.log('Nothing to test'); return; }
+  
+  console.log(`Launch ${num} test(${num === 1 ? '' : 's'})`);
+  
+  for (const { name, fn } of cases)
+    try              { await fn(); }
+    catch (err: any) { console.log(`FAILED: "${name}"`, err[limn]()); process.exit(1); }
+  
+  console.log(`Accept ${num} test(${num === 1 ? '' : 's'})`);
+  if (num !== tot) console.log(`(Out of ${tot} total tests)`);
   
 };
