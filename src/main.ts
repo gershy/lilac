@@ -17,6 +17,7 @@ import { Fact } from '@gershy/disk';
 import { regions as awsRegions } from './util/aws.ts';
 import { isCls, skip } from '@gershy/clearing';
 import procTerraform from './util/procTerraform.ts';
+import tryWithHealing from '@gershy/util-try-with-healing';
 
 const { File, Provider, Terraform } = PetalTerraform;
 
@@ -357,22 +358,6 @@ export class Garden<Reg extends Registry<any>> {
     
     const { bootFact, mainFact } = await this.prepare();
     
-    type TryWithHealingArgs<T> = {
-      fn: () => Promise<T>,
-      canHeal: (err: any) => boolean,
-      heal: () => Promise<any>
-    };
-    const tryWithHealing = async <T>(args: TryWithHealingArgs<T>): Promise<T> => {
-      
-      const { fn, heal, canHeal } = args;
-      
-      return fn().catch(async err => {
-        if (!canHeal(err)) throw err;
-        await heal();
-        return fn();
-      });
-      
-    };
     const logicalApply = (args: { bootFact: Fact, mainFact: Fact }) => {
       
       return tryWithHealing({

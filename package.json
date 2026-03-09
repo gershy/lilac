@@ -1,6 +1,6 @@
 {
   "name": "@gershy/lilac",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
     "lilac",
@@ -31,7 +31,8 @@
     "@gershy/logger": "^0.0.3",
     "@gershy/util-http": "^0.0.4",
     "@gershy/util-nodejs-proc": "^0.0.10",
-    "@gershy/util-phrasing": "^0.0.4"
+    "@gershy/util-phrasing": "^0.0.4",
+    "@gershy/util-try-with-healing": "^0.0.2"
   },
   "type": "module",
   "files": [
