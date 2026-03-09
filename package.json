@@ -1,6 +1,6 @@
 {
   "name": "@gershy/lilac",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
     "lilac",
