@@ -95,21 +95,18 @@ export const equal = (v0: any, v1: any, path: (string | number)[] = []): { equal
     
   }
   
-  if (cls0 === Buffer) {
-    
-    if (v0.length !== v1.length) return { equal: false, path, reason: 'buffer size', len0: v0.length, len1: v1.length };
-    for (let i = 0; i < v0.length; i++) {
-      const eq = equal(v0[i], v1[i], [ ...path, i ]);
-      if (!eq.equal) return eq;
-    }
-    return { equal: true };
-    
-  }
+  if (cls0 === ArrayBuffer) return equal([ ...new Uint8Array(v0) ], [ ...new Uint8Array(v1) ], [ ...path, '<number[]>' ])
+  
+  if (ArrayBuffer.isView(v0)) return equal(
+    v0.buffer.slice(v0.byteOffset, v0.byteOffset + v0.byteLength),
+    v1.buffer.slice(v1.byteOffset, v1.byteOffset + v1.byteLength),
+    [ ...path, '<arrayBuffer>' ]
+  );
   
   if (inCls(v0, Error)) {
     // Include message, but not stack (because it's a nightmare to define expected stacktrace
     // values when defining expected results)
-    return equal({ $msg: v0.message, ...v0 }, { $msg: v1.message, ...v1 }, [ ...path, '<convertToObj>' ]);
+    return equal({ $msg: v0.message, ...v0 }, { $msg: v1.message, ...v1 }, [ ...path, '<obj>' ]);
   }
   
   return { equal: false, path, reason: 'unknown comparison', cls: getClsName(v0) };

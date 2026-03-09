@@ -1,6 +1,6 @@
 {
   "name": "@gershy/lilac",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
     "lilac",
@@ -19,12 +19,18 @@
   "homepage": "https://github.com/gershy/lilac#readme",
   "license": "ISC",
   "peerDependencies": {
-    "@gershy/clearing": "^0.0.24"
+    "@gershy/clearing": "^0.0.29"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@gershy/disk": "^0.0.10",
+    "@gershy/logger": "^0.0.3",
+    "@gershy/util-nodejs-proc": "^0.0.7",
+    "@gershy/util-phrasing": "^0.0.4"
   },
   "type": "module",
   "files": [
@@ -47,11 +53,5 @@
     "git.pub": "npm run test && git add --all && git commit -m \"automated\" && git push",
     "npm.login": "npm login",
     "npm.pub": "npm run test && npm run build && npm publish --access public"
-  },
-  "dependencies": {
-    "@gershy/disk": "^0.0.9",
-    "@gershy/logger": "^0.0.2",
-    "@gershy/util-nodejs-proc": "^0.0.6",
-    "@gershy/util-phrasing": "^0.0.3"
   }
 }
