@@ -1,7 +1,7 @@
 import { Fact, rootFact } from '@gershy/disk';
 import proc from '@gershy/util-nodejs-proc';
 import { Context, PetalTerraform, Registry } from '../main.ts';
-import tryWithHealing from '../util/tryWithHealing.ts';
+import tryWithHealing from '@gershy/util-try-with-healing';
 import retry from '@gershy/util-retry';
 import { RegionTerm } from '../util/aws.ts';
 import { skip } from '@gershy/clearing';
@@ -157,8 +157,9 @@ export namespace Soil {
       
       return {
         
-        awsServices: [ ...awsServices ],
+        aws: { services: [ ...awsServices ], region: this.aws.region, },
         netProc: { proto: 'http', addr: 'localhost', port } as NetProc,
+        url: `http://localhost:${port}`
         
       };
       
@@ -228,10 +229,11 @@ export namespace Soil {
             }
           });
           
-          for (const { term } of awsRegions) new PetalTerraform.Provider('aws', {
+          for (const { term } of awsRegions) yield new PetalTerraform.Provider('aws', {
             
-            profile: 'default', // References a section within the credentials file
             region: term,
+            skipCredentialsValidation: true,
+            skipRequestingAccountId:   true,
             
             // Omit the alias for the default provider!
             ...(term !== aws.region && { alias: term.split('-').join('_') }),

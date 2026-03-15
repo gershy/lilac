@@ -247,35 +247,31 @@ testRunner([
       name: 'hi',
       fact: gardenFact,
       patioFact,
-      
       logger: logger.kid('garden'),
-      // registry,
-      
       maturity: 'm0',
       debug: false,
       pfx: 'tezzzt',
     };
     
     const garden = new Garden({
-      ...context,
+      context,
       registry,
-      define: function*(ctx, { MyLilac }) { yield new MyLilac(); }
+      define: (ctx, registry) => [ new registry.MyLilac() ]
     });
     
     const soil = new Soil.LocalStack({ aws: { region: 'ca-central-1' }, registry });
-    await soil.run({ logger });
+    const localStack = await soil.run({ logger });
     
     try {
       
       await garden.grow({ type: 'real', soil });
       
       const client = new APIGatewayClient({
-        region: 'us-east-1',
-        endpoint: 'http://localhost:4566'
+        region: localStack.aws.region,
+        endpoint: localStack.url
       });
 
       const { items: apis = [] } = await client.send(new GetRestApisCommand({}));
-      console.log({ apis });
       const testApi = apis.find(item => item.name === 'tezzzt-test-api');
       if (!testApi?.id) throw Error('test api missing')[mod]({ apis });
       

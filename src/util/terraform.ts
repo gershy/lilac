@@ -1,3 +1,5 @@
+// TODO: Flower definers (Lilac consumers) will want to use these - make sure they're well-exposed
+
 export const embed = (v: string) => '${' + v + '}';
 export const json = (v: Json) => [
   '| <<EOF',

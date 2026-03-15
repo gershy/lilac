@@ -97,10 +97,12 @@ export class Garden<Reg extends Registry<any>> {
   // Note this class currently is coupled to terraform logic
   
   private ctx: Context;
-  private registry: Reg;
-  private define: (ctx: Context, flowers: RegistryFlowers<Reg, 'real' | 'test'>) => Iterable<Flower> | AsyncIterable<Flower>;
+  private reg: Reg;
+  private def: (ctx: Context, flowers: RegistryFlowers<Reg, 'real' | 'test'>) => SuperIterable<Flower>;
   constructor(args: {
     
+    context: Context,
+    /*
     name: string, // Name of the system/garden
     logger: Logger,
     fact: Fact, // The fact within which generated iac will be stored
@@ -114,16 +116,17 @@ export class Garden<Reg extends Registry<any>> {
     maturity: string,
     debug:    boolean,
     pfx:      string, // Establishes a namespace for all resources provisioned for the particular app
+    */
     
     registry: Reg,
-    define:   Garden<Reg>['define']
+    define:   Garden<Reg>['def']
     
   }) {
     
-    const { define, registry, ...ctx } = args;
-    this.ctx = ctx;
-    this.registry = registry;
-    this.define = define;
+    const { define, registry, context } = args;
+    this.ctx = context;
+    this.reg = registry;
+    this.def = define;
     
   }
   
@@ -137,7 +140,7 @@ export class Garden<Reg extends Registry<any>> {
     
     const seenFlowers = new Set<Flower>();
     const seenPetals = new Set<PetalTerraform.Base>();
-    for await (const topLevelFlower of this.define(this.ctx, this.registry.get('real') as RegistryFlowers<Reg, 'real'>)) {
+    for await (const topLevelFlower of await this.def(this.ctx, this.reg.get('real') as RegistryFlowers<Reg, 'real'>)) {
       
       for (const flower of topLevelFlower.getDependencies()) {
         
