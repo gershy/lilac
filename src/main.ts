@@ -14,26 +14,20 @@
 import { PetalTerraform } from './petal/terraform/terraform.ts';
 import Logger from '@gershy/logger';
 import { Fact } from '@gershy/disk';
-import { regions as awsRegions } from './util/aws.ts';
 import { isCls, skip } from '@gershy/clearing';
 import procTerraform from './util/procTerraform.ts';
 import tryWithHealing from '@gershy/util-try-with-healing';
-
-const { File, Provider, Terraform } = PetalTerraform;
+import phrasing from '@gershy/util-phrasing';
+import { Soil } from './soil/soil.ts';
+import { SuperIterable } from './util/superIterable.ts';
 
 export type Context = {
   
-  name: string, // Name of the system/garden
-  logger: Logger,
-  fact: Fact,
-  patioFact: Fact,
-  
-  aws: {
-    accountId: string,
-    accessKey: { id: string, '!secret': string },
-    region: string
-  },
-  maturity:   string,
+  name:       string, // Name of the system/garden
+  logger:     Logger,
+  fact:       Fact,
+  patioFact:  Fact,
+  maturity:   string, // TODO: A Lilac run has a maturity? Or a single Lilac build supports multiple maturities?
   debug:      boolean,
   pfx:        string // Establishes a namespace for all resources provisioned for the particular app
   
@@ -45,13 +39,24 @@ export type Context = {
 };
 
 export class Flower {
+  
+  // TODO: The downside of having this static is that different instances may use different
+  // services - e.g. api gateway instance may have "useEdge: true", in which case we'd like to
+  // include cloudfront and omit it otherwise... but having it on the instance is annoying since
+  // we want to enumerate all services *before* instantiating any Flowers... probably better this
+  // way? And heirarchical design can probably avoid most unecessary service inclusion...
+  // TODO: The naming of these services is coupled to LocalStack - consider using Lilac-scoped
+  // naming, and add a translation layer from Lilac->LocalStack in Soil.LocalStack?
+  public static getAwsServices(): Soil.LocalStackAwsService[] { return []; }
+  
   constructor() {}
   public * getDependencies(): Generator<Flower> {
     yield this;
   }
-  public getPetals(ctx: Context): Iterable<PetalTerraform.Base> | AsyncIterable<PetalTerraform.Base> {
+  public getPetals(ctx: Context): SuperIterable<PetalTerraform.Base> {
     throw Error('not implemented');
   }
+  
 };
 
 type RegistryFlowers<R extends Registry<any>, M extends 'real' | 'test'> = R extends Registry<infer Flowers>
@@ -60,9 +65,22 @@ type RegistryFlowers<R extends Registry<any>, M extends 'real' | 'test'> = R ext
 
 export class Registry<Flowers extends Obj<{ real: typeof Flower, test: typeof Flower }> = Obj<never>> {
   
+  // Note that maintaining a duality of classes for each Flower (one for testing, one for remote
+  // deploy) is essential to keep test functionality out of deployed code bundles. If a single
+  // class supported both test and prod functionality, these two pieces of functionality would
+  // always be bundled together.
+  
   private flowers: Flowers;
   constructor(flowers: Flowers) {
     this.flowers = {}[merge](flowers);
+  }
+  
+  getAwsServices() {
+    const services = new Set<Soil.LocalStackAwsService>();
+    for (const [ k, { real } ] of this.flowers as ObjIterator<Flowers>)
+      for (const awsService of real.getAwsServices())
+        services.add(awsService);
+    return services[toArr](v => v);
   }
   
   add<MoreFlowers extends Obj<{ real: typeof Flower, test: typeof Flower }>>(flowers: MoreFlowers): Registry<Omit<Flowers, keyof MoreFlowers> & MoreFlowers> {
@@ -88,11 +106,11 @@ export class Garden<Reg extends Registry<any>> {
     fact: Fact, // The fact within which generated iac will be stored
     patioFact: Fact, // A subset of generated iac may be intended for source-control (e.g. .terraform.lock.hcl) - this fact should point within a source-controlled repo to maintain any such iac
     
-    aws: {
-      accountId: string,
-      accessKey: { id: string, '!secret': string },
-      region: string
-    },
+    // aws: {
+    //   accountId: string,
+    //   accessKey: { id: string, '!secret': string },
+    //   region: string
+    // },
     maturity: string,
     debug:    boolean,
     pfx:      string, // Establishes a namespace for all resources provisioned for the particular app
@@ -109,18 +127,24 @@ export class Garden<Reg extends Registry<any>> {
     
   }
   
-  private async * getPetals<Mode extends 'real' | 'test'>(mode: Mode) {
+  private async * getPetals() {
+    
+    // TODO: We always use the "real" flowers from the registry - this is part of the shift to
+    // localStack; we always generate genuine terraform and apply it to the docker localStack.
+    // Eventually may want to support ultra-lightweight dockerless/localStackless js flower mocks;
+    // that would be the time to add "fake" flowers alongside each real flower, and start
+    // conditionally calling `this.registry.get('fake')`...
     
     const seenFlowers = new Set<Flower>();
     const seenPetals = new Set<PetalTerraform.Base>();
-    for await (const topLevelFlower of this.define(this.ctx, this.registry.get(mode) as RegistryFlowers<Reg, Mode>)) {
+    for await (const topLevelFlower of this.define(this.ctx, this.registry.get('real') as RegistryFlowers<Reg, 'real'>)) {
       
       for (const flower of topLevelFlower.getDependencies()) {
         
         if (seenFlowers.has(flower)) continue;
         seenFlowers.add(flower);
         
-        for await (const petal of flower.getPetals(this.ctx)) {
+        for await (const petal of await flower.getPetals(this.ctx)) {
           
           if (seenPetals.has(petal)) continue;
           yield petal;
@@ -133,15 +157,17 @@ export class Garden<Reg extends Registry<any>> {
     
   }
   
-  public async prepare(/* Note this only pertains to "real" mode */) {
+  public async genTerraform(deployTarget: Soil.Base) {
     
-    return this.ctx.logger.scope('garden.prepare', {}, async logger => {
+    const soilTfPetalsPrm = deployTarget.getTerraformPetals(this.ctx);
+    
+    return this.ctx.logger.scope('garden.genTerraform', {}, async logger => {
       
       type SetupTfProjArgs = {
         term: string,
         logger: Logger,
         fact: Fact,
-        setup: (fact: Fact, mainWritable: { write: (data: string | Buffer) => Promise<void>, end: () => Promise<void> }) => Promise<void>
+        setup: (fact: Fact, mainWritable: { write: (data: string | Buffer) => Promise<void>, end: () => Promise<void> }, writePetalTfAndFiles: <T extends PetalTerraform.Base>(petal: T) => Promise<T>) => Promise<void>
       };
       const setupTfProj = async (args: SetupTfProjArgs) => args.logger.scope('tf', { proj: this.ctx.name, tf: args.term }, async logger => {
         
@@ -167,7 +193,19 @@ export class Garden<Reg extends Registry<any>> {
         await logger.scope('files.generate', {}, async logger => {
           
           const stream = await args.fact.kid([ 'main.tf' ]).getDataHeadStream();
-          await args.setup(args.fact, stream);
+          await args.setup(args.fact, stream, async petal => {
+            
+            // Include a utility function the caller can use to easily write petals
+            const { tf, files = {} } = await petal.getResult()
+                .then(tf => isCls(tf, String) ? { tf } : tf);
+            
+            if (tf) await stream.write(`${tf}\n`);
+            
+            await Promise.all(files[toArr]((data, kfp) => args.fact.kid(kfp.split('/')).setData(data)));
+            
+            return petal;
+            
+          });
           await stream.end(); // TODO: @gershy/disk should allow `await headStream.end()`
           
         });
@@ -180,59 +218,74 @@ export class Garden<Reg extends Registry<any>> {
       // terraform project which saves its state in the cloud; in order to do this we need to first
       // provision the cloud storage engines to save the terraform state. The "boot" tf project
       // takes care of this, and "main" uses the storage engine provisioned by "boot"!
-      return Promise[allObj]({
-        
+      return Promise[allObj]({ // TODO: Can probably switch to `Promise[allObj]([ 'boot', 'main' ][toObj](...))` resulting in `setupTfProj` being inlined
+      
         bootFact: setupTfProj({
           term: 'boot',
           logger,
           fact: this.ctx.fact.kid([ 'boot' ]),
-          setup: async (fact, mainWritable) => {
+          setup: async (fact, mainWritable, writePetalTfAndFiles) => {
             
-            await mainWritable.write(String[baseline](`
-              | terraform {
-              |   required_providers {
-              |     aws = {
-              |       source  = "hashicorp/aws"
-              |       version = "~> 5.0"
-              |     }
-              |   }
-              | }
-              | provider "aws" {
-              |   shared_credentials_files = [ "creds.ini" ]
-              |   profile                  = "default"
-              |   region                   = "ca-central-1"
-              | }
-              | resource "aws_s3_bucket" "tf_state" {
-              |   bucket = "${this.ctx.pfx}-tf-state"
-              | }
-              | resource "aws_s3_bucket_ownership_controls" "tf_state" {
-              |   bucket = aws_s3_bucket.tf_state.bucket
-              |   rule {
-              |     object_ownership = "ObjectWriter"
-              |   }
-              | }
-              | resource "aws_s3_bucket_acl" "tf_state" {
-              |   bucket = aws_s3_bucket.tf_state.bucket
-              |   acl = "private"
-              |   depends_on = [ aws_s3_bucket_ownership_controls.tf_state ]
-              | }
-              | resource "aws_dynamodb_table" "tf_state" {
-              |   name         = "${this.ctx.pfx}-tf-state"
-              |   billing_mode = "PAY_PER_REQUEST"
-              |   hash_key     = "LockID"
-              |   attribute {
-              |     name = "LockID"
-              |     type = "S"
-              |   }
-              | }
-            `));
+            // Include the soil's infrastructure
+            const { boot } = await soilTfPetalsPrm;
+            for await (const petal of await boot())
+              await writePetalTfAndFiles(petal);
             
-            await fact.kid([ 'creds.ini' ]).setData(String[baseline](`
+            /*const tfAwsCredsFile = await writePetalTfAndFiles(new PetalTerraform.File('creds.ini', String[baseline](`
               | [default]
               | aws_region            = ${this.ctx.aws.region}
               | aws_access_key_id     = ${this.ctx.aws.accessKey.id}
               | aws_secret_access_key = ${this.ctx.aws.accessKey['!secret']}
-            `));
+            `)));
+            const terraform = await writePetalTfAndFiles(new PetalTerraform.Terraform({
+              $requiredProviders: {
+                aws: {
+                  source: 'hashicorp/aws',
+                  version: `~> 5.0`
+                }
+              }
+            }));
+            const provider = await writePetalTfAndFiles(new PetalTerraform.Provider('aws', {
+              
+              sharedCredentialsFiles: [ tfAwsCredsFile.refStr() ],
+              profile: 'default', // References a section within the credentials file
+              region: this.ctx.aws.region,
+              
+              ...(deployTarget && {
+                skipCredentialsValidation: true,
+                skipRequestingAccountId: true,
+                s3UsePathStyle: true, // Otherwise requests can go to "bucket.s3.amazonaws.com", outside localStack
+                
+                // Note localStack always includes s3 and ddb (required for tf state storage)
+                $endpoints: deployTarget.awsServices
+                  [toObj](svc => [ svc, `${deployTarget.netProc.proto}://${deployTarget.netProc.addr}:${deployTarget.netProc.port}` ])
+              })
+              
+            }));*/
+            
+            // Create s3 tf state bucket
+            const s3 = await writePetalTfAndFiles(new PetalTerraform.Resource('awsS3Bucket', 'tfState', {
+              bucket: `${this.ctx.pfx}-tf-state`
+            }));
+            const s3Controls = await writePetalTfAndFiles(new PetalTerraform.Resource('awsS3BucketOwnershipControls', 'tfState', {
+              bucket: s3.ref('bucket'),
+              $rule: {
+                objectOwnership: 'ObjectWriter'
+              }
+            }));
+            await writePetalTfAndFiles(new PetalTerraform.Resource('awsS3BucketAcl', 'tfState', {
+              bucket: s3.ref('bucket'),
+              acl: 'private',
+              dependsOn: [ s3Controls.ref() ]
+            }));
+            
+            // Create ddb tf state locking table
+            await writePetalTfAndFiles(new PetalTerraform.Resource('awsDynamodbTable', 'tfState', {
+              name: `${this.ctx.pfx}-tf-state`,
+              billingMode: phrasing('payPerRequest', 'camel', 'snake')[upper](),
+              hashKey: 'LockID',
+              $attribute: { name: 'LockID', type: 'S' }
+            }));
             
           }
         }),
@@ -241,76 +294,77 @@ export class Garden<Reg extends Registry<any>> {
           term: 'main',
           logger,
           fact: this.ctx.fact.kid([ 'main' ]),
-          setup: async (fact, mainWritable) => {
+          setup: async (fact, mainWritable, writePetalTfAndFiles) => {
             
-            const garden = this;
-            const iteratePetals = async function*() {
-              
-              const tfAwsCredsFile = new File('creds.ini', String[baseline](`
-                | [default]
-                | aws_region            = ${garden.ctx.aws.region}
-                | aws_access_key_id     = ${garden.ctx.aws.accessKey.id}
-                | aws_secret_access_key = ${garden.ctx.aws.accessKey['!secret']}
-              `));
-              yield tfAwsCredsFile;
-              
-              const terraform = new Terraform({
-                $requiredProviders: {
-                  aws: {
-                    source: 'hashicorp/aws',
-                    version: `~> 5.0` // Consider parameterizing??
-                  }
-                },
-                '$backend.s3': {
-                  region: garden.ctx.aws.region,
-                  encrypt:       true,
-                  
-                  // Note references not allowed in terraform.backend!!
-                  bucket:        `${garden.ctx.pfx}-tf-state`,
-                  key:           `tf`,
-                  
-                  dynamodbTable: `${garden.ctx.pfx}-tf-state`,  // Dynamodb table is aws-account-wide
-                  sharedCredentialsFiles: [ tfAwsCredsFile.tfRef() ],
-                  profile: 'default', // References a section within the credentials file
+            // Include the soil's infrastructure
+            const { main } = await soilTfPetalsPrm;
+            for await (const petal of await main())
+              await writePetalTfAndFiles(petal);
+            
+            /*
+            // Creds, terraform, and a provider for each region
+            const tfAwsCredsFile = await writePetalTfAndFiles(new PetalTerraform.File('creds.ini', String[baseline](`
+              | [default]
+              | aws_region            = ${this.ctx.aws.region}
+              | aws_access_key_id     = ${this.ctx.aws.accessKey.id}
+              | aws_secret_access_key = ${this.ctx.aws.accessKey['!secret']}
+            `)));
+            const terraform = await writePetalTfAndFiles(new PetalTerraform.Terraform({
+              $requiredProviders: {
+                aws: {
+                  source: 'hashicorp/aws',
+                  version: `~> 5.0` // Consider parameterizing??
                 }
-              });
-              yield terraform;
-              
-              for (const { term } of awsRegions) yield new Provider('aws', {
+              },
+              '$backend.s3': {
+                region: this.ctx.aws.region,
+                encrypt:       true,
                 
-                sharedCredentialsFiles: [ tfAwsCredsFile.tfRef() ],
+                // Note references not allowed in terraform.backend!!
+                bucket:        `${this.ctx.pfx}-tf-state`,
+                key:           `tf`,
+                
+                dynamodbTable: `${this.ctx.pfx}-tf-state`,  // Dynamodb table is aws-account-wide
+                sharedCredentialsFiles: [ tfAwsCredsFile.refStr() ],
                 profile: 'default', // References a section within the credentials file
-                region: term,
                 
-                // Omit the alias for the default provider!
-                ...(term !== garden.ctx.aws.region && { alias: term.split('-').join('_') })
-                
-              });
+                // Point the S3 backend at LocalStack when testing
+                ...(deployTarget && {
+                  endpoints: deployTarget.awsServices
+                    [toObj](service => [ service, `${deployTarget.netProc.proto}://${deployTarget.netProc.addr}:${deployTarget.netProc.port}` ]),
+                  usePathStyle: true,
+                })
+              }
+            }));
+            for (const { term } of awsRegions) await writePetalTfAndFiles(new PetalTerraform.Provider('aws', {
               
-              yield* garden.getPetals('real');
+              sharedCredentialsFiles: [ tfAwsCredsFile.refStr() ],
+              profile: 'default', // References a section within the credentials file
+              region: term,
               
-            };
+              // Omit the alias for the default provider!
+              ...(term !== this.ctx.aws.region && { alias: term.split('-').join('_') }),
+              
+              // Point providers at LocalStack when testing
+              ...(deployTarget && {
+                s3UsePathStyle: true,
+                $endpoints: deployTarget.awsServices
+                  [toObj](svc => [ svc, `${deployTarget.netProc.proto}://${deployTarget.netProc.addr}:${deployTarget.netProc.port}` ])
+              })
+              
+            }));
+            */
             
-            const patioTfHclFact = garden.ctx.patioFact.kid([ 'main', '.terraform.lock.hcl' ]);
+            for await (const petal of this.getPetals())
+              await writePetalTfAndFiles(petal);
+            
+            // Propagate any terraform lock found in version control
+            const patioTfHclFact = this.ctx.patioFact.kid([ 'main', '.terraform.lock.hcl' ]);
             const tfHclData = await patioTfHclFact.getData('str');
             if (tfHclData) await fact.kid([ '.terraform.lock.hcl' ]).setData(tfHclData);
             
-            for await (const petal of iteratePetals()) {
-              
-              const result = await (async () => {
-                const result = await petal.getResult();
-                if (!isCls(result, Object)) return { tf: result, files: {} };
-                return { files: {}, ...result };
-              })();
-              
-              if (result.tf) await mainWritable.write(`${result.tf}\n`);
-              
-              await Promise.all(result.files[toArr]((data, kfp) => fact.kid(kfp.split('/')).setData(data)));
-              
-            }
-            
           }
-        })
+        }),
         
       });
       
@@ -318,27 +372,28 @@ export class Garden<Reg extends Registry<any>> {
     
   }
   
-  private terraformInit(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.init', {}, async logger => {
+  private terraformInit(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.init', { fact: fact.fsp() }, async logger => {
     
     // Consider if we ever want to pass "-reconfigure" and "-migrate-state" options; these are
     // useful if we are moving backends (e.g. one aws account to another), and want to move our
     // full iac definition too
     
-    // TODO: Some terraform commands fail when offline - can this be covered up?
+    // TODO: Some terraform commands fail when offline - can this be covered up? Possibly by
+    // checking terraform binaries into the repo? (Cross-platform nightmare though...)
     
     const result = await procTerraform(fact, `terraform init -input=false`);
     logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
     return result;
     
   }); }
-  private terraformPlan(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.plan', {}, async logger => {
+  private terraformPlan(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.plan', { fact: fact.fsp() }, async logger => {
     
     const result = await procTerraform(fact, `terraform plan -input=false`);
     logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
     return result;
     
   }); }
-  private terraformApply(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.apply', {}, async logger => {
+  private terraformApply(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.apply', { fact: fact.fsp() }, async logger => {
     
     const result = await procTerraform(fact, `terraform apply -input=false -auto-approve`);
     logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
@@ -346,52 +401,38 @@ export class Garden<Reg extends Registry<any>> {
     
   }); }
   
-  public async grow(mode: 'real' | 'test') {
+  public async grow(deploy: { type: 'real', soil: Soil.Base } | { type: 'test' }) {
     
-    // - Avoid tf preventing deletions on populated dbs - e.g. s3 tf needs "force_destroy = true"
-    // - Note `terraform init` generates a ".terraform.lock.hcl" file - this should be checked into
-    //   consumer's source control! May need consumers to provide an optional `repoFact`, and if
-    //   present after `terraform init` we can copy the ".terraform.lock.hcl" file
+    if (deploy.type === 'test') throw Error('not implemented')[mod]({ type: 'test' }); // TODO: Can be nice to have local service mocks!
     
-    // Note that test mode does not involve any iac - it all runs locally
-    if (mode === 'test') throw Error('test mode not implemented yet');
+    const { bootFact, mainFact } = await this.genTerraform(deploy.soil);
     
-    const { bootFact, mainFact } = await this.prepare();
-    
-    const logicalApply = (args: { bootFact: Fact, mainFact: Fact }) => {
+    // Init+apply both "boot" and "main", in optimistic fashion
+    const isHealableTerraformApply = err => /run[^a-zA-Z0-9]+terraform init/.test(err.output as string ?? '');
+    await tryWithHealing({
       
-      return tryWithHealing({
+      fn: () => this.terraformApply(mainFact),
+      canHeal: isHealableTerraformApply,
+      heal: () => tryWithHealing({
         
-        fn: () => this.terraformApply(args.mainFact),
-        canHeal: err => (err.output as string ?? '')[has]('please run "terraform init"'),
+        fn: async () => {
+          await this.terraformInit(mainFact);
+          await this.ctx.patioFact.kid([ 'main', '.terraform.lock.hcl' ]).setData(
+            await mainFact.kid([ '.terraform.lock.hcl' ]).getData('str')
+          );
+        },
+        canHeal: err => true,
         heal: () => tryWithHealing({
           
-          fn: async () => {
-            await this.terraformInit(args.mainFact);
-            await this.ctx.patioFact.kid([ 'main', '.terraform.lock.hcl' ]).setData(
-              await args.mainFact.kid([ '.terraform.lock.hcl' ]).getData('str')
-            );
-          },
-          canHeal: err => true,
-          heal: () => tryWithHealing({
-            
-            fn: () => this.terraformApply(args.bootFact),
-            canHeal: err => (err.output as string ?? '')[has]('please run "terraform init"'),
-            heal: () => this.terraformInit(args.bootFact)
-            
-          })
+          fn: () => this.terraformApply(bootFact),
+          canHeal: isHealableTerraformApply,
+          heal: () => this.terraformInit(bootFact)
           
         })
         
-      });
+      })
       
-    };
-    
-    // TODO: HEEERE do `logicalApply` instead!
-    await this.terraformInit(bootFact);
-    
-    // const result = await logicalApply({ mainFact, bootFact });
-    //const result = await execTf.init(bootFact);
+    });
     
   }
   

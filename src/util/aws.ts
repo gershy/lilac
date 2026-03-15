@@ -7,7 +7,7 @@ export const capitalKeys = (v: any) => {
   return v;
 };
 
-export const regions = [
+export const regions = ([
   
   'ca-central-1',
   
@@ -52,8 +52,19 @@ export const regions = [
   // 'us-gov-east-1',
   // 'us-gov-west-1',
   
-][map](region => {
-  const [ c, z, num ] = region.split('-');
-  const [ dir0, dir1 = dir0 ] = z.match(/central|north|south|east|west/g)!;
-  return { term: region, mini: [ c, dir0[0], dir1[0], num ].join('') };
+] as const)[map](region => {
+  
+  type Region = Extract<typeof region, string>;
+  type RegionPcs = Region extends `${infer Country}-${infer Area}-${infer Number}` ? [ Country, Area, Number ] : never;
+  type Char0<S extends string> = S extends `${infer C}${string}` ? C : never;
+  
+  const [ c, z, num ] = (region as Region).split('-') as RegionPcs;
+  const [ dir0, dir1 = dir0 ] = z.match(/central|north|south|east|west/g) as RegionPcs;
+  return {
+    term: region as Region,
+    mini: [ c, dir0[0], dir1[0], num ].join('') as `${typeof c}${Char0<typeof dir0>}${Char0<typeof dir1>}${typeof num}`
+  };
 });
+
+export type RegionTerm = (typeof regions)[number]['term'];
+export type RegionMini = (typeof regions)[number]['mini'];

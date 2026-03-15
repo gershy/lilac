@@ -90,7 +90,7 @@ export namespace PetalTerraform {
     getHandle(): string { throw Error('not implemented'); }
     getProps(): { [key: string]: Json } { throw Error('not implemented'); }
     
-    tfRef(props: string | string[] = []): string {
+    refStr(props: string | string[] = []): string {
       
       if (!isCls(props, Array)) props = [ props ];
       
@@ -100,11 +100,11 @@ export namespace PetalTerraform {
         : base;
       
     }
-    tfRefp(props: string | string[] = []): `| ${string}` {
+    ref(props: string | string[] = []): `| ${string}` {
       
       // "plain ref" - uses "| " to avoid being  quoted within terraform
       
-      return `| ${this.tfRef(props)}`;
+      return `| ${this.refStr(props)}`;
       
     }
     async getResultHeader(): Promise<string> { throw Error('not implemented'); }
@@ -186,8 +186,8 @@ export namespace PetalTerraform {
     async getResultHeader() {
       return `data "${ph(this.type, 'camel', 'snake')}" "${ph(this.handle, 'camel', 'snake')}"`;
     }
-    tfRef(props: string | string[] = []) {
-      return `data.${super.tfRef(props)}`;
+    refStr(props: string | string[] = []) {
+      return `data.${super.refStr(props)}`;
     }
     
   };
@@ -205,7 +205,7 @@ export namespace PetalTerraform {
     async getResult() {
       return { tf: '', files: { [this.fp]: this.content } };
     }
-    tfRef(props?: string | string[]) {
+    refStr(props?: string | string[]) {
       return this.fp; // `this.fp` should be quoted but not transformed to a tf handle
     }
     

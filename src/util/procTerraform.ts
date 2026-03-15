@@ -2,7 +2,7 @@ import { rootFact } from '@gershy/disk';
 import proc, { ProcOpts } from '@gershy/util-nodejs-proc';
 type Fact = typeof rootFact
 
-export default (fact: Fact, cmd: string, opts?: ProcOpts) => {
+export default (fact: Fact, cmd: string, opts?: Partial<ProcOpts> & { tfUpdates: (data) => any }) => {
   
   const numTailingTfLogLines = 20;
   
@@ -14,12 +14,21 @@ export default (fact: Fact, cmd: string, opts?: ProcOpts) => {
     return logDb;
   };
   
-  return proc(cmd, {
+  const { tfUpdates, ...moreOpts } = opts ?? {};
+  
+  const prm = proc(cmd, {
     timeoutMs: 0,
-    ...opts,
+    ...moreOpts,
     cwd: fact,
     env: { TF_DATA_DIR: '' }
-  }).then(
+  });
+  
+  if (tfUpdates) {
+    prm.proc.stdout.on('data', data => tfUpdates(data));
+    prm.proc.stderr.on('data', data => tfUpdates(data));
+  }
+  
+  return Object.assign(prm.then(
     async result => {
       const logDb = await writeLog(result.output);
       return { logDb, output: result.output.split('\n').slice(-numTailingTfLogLines).join('\n') };
@@ -31,6 +40,6 @@ export default (fact: Fact, cmd: string, opts?: ProcOpts) => {
         ...(err.output ? { output: err.output.split('\n').slice(-numTailingTfLogLines).join('\n') } : { cause: err })
       });
     }
-  );
+  ), { proc: prm.proc });
   
 };

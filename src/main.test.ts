@@ -2,8 +2,12 @@ import { assertEqual, cmpAny, testRunner } from '../build/utils.test.ts';
 import { Context, Garden, Flower, Registry, PetalTerraform } from './main.ts';
 import { Fact, rootFact } from '@gershy/disk';
 import Logger from '@gershy/logger';
-import { getClsName } from '@gershy/clearing';
-const { Resource } = PetalTerraform;
+import hash from '@gershy/util-hash';
+import http from '@gershy/util-http';
+import phrasing from '@gershy/util-phrasing';
+import JsZip from 'jszip';
+import { APIGatewayClient, GetRestApisCommand } from '@aws-sdk/client-api-gateway';
+import { Soil } from './soil/soil.ts';
 
 // Type testing
 (async () => {
@@ -60,9 +64,9 @@ testRunner([
     //   - Mapping dynamic-length lists (dns) to infrastructure (needs multiple `terraform apply` calls)
     // - Test various error scenarios; add specific text match conditions to `tryWithHealing`
     
-    const tf = new Resource('awsWafv2WebAcl', 'happyWaf', {
+    const tf = new PetalTerraform.Resource('awsWafv2WebAcl', 'happyWaf', {
       
-      name: `aaa-coolFirewall`,
+      name: `tezzzt-coolFirewall`,
       scope: 'cloudfront'[upper](),
       description: 'firewall',
       
@@ -102,7 +106,7 @@ testRunner([
     const r = await tf.getResult();
     assertEqual(r, String[baseline](`
       | resource "aws_wafv2_web_acl" "happy_waf" {
-      |   name = "aaa-coolFirewall"
+      |   name = "tezzzt-coolFirewall"
       |   scope = "CLOUDFRONT"
       |   description = "firewall"
       |   default_action {
@@ -137,243 +141,165 @@ testRunner([
   }},
   { name: 'garden growth', fn: () => isolated(async fact => {
     
-    if (1) return; // TODO: This test breaks when run from manager
+    // Deploy the simplest possible api to localStack, and test if querying it works
     
-    class MyLilac extends Flower {
+    const logger = new Logger('test', {}, {}, (...args) => {
+      console.log(args);
+    });
+    
+    logger.log({ $$: 'launch' });
+    
+    class TestInfra extends Flower {
       
-      public async * getPetals(ctx: Context) {
+      public static getAwsServices() { return [ 'lambda', 'apigateway', 'iam' ] as Soil.LocalStackAwsService[]; }
+      
+      public async getPetals(ctx: Context) {
         
-        const x = new Resource('testType0', 'testHandle', {
-          abc: 123,
-          def: 456,
-          cls: getClsName(this)
-        });
-        yield x;
+        // Minimal API Gateway + Lambda: GET /test -> "hello"
         
-        yield new Resource('testType1', 'testHandle', {
-          testProp0: 111,
-          testProp1: 'aaa',
-          testProp2: {
-            testProp3: 'x',
-            testProp4: 'y'
-          },
-          '$testProp5.0': {
-            testProp6: 'yolo',
-            testProp7: 'haha'
-          },
-          '$testProp5.1': {
-            testProp8: x.tfRefp('abc'),
-            testProp9: x.tfRefp('def')
-          }
+        const code = String[baseline](`
+          | module.exports.handler = async (e, ctx, cb) => {
+          |   return {
+          |     statusCode: 200,
+          |     headers: { 'content-type': 'application/javascript' },
+          |     body: JSON.stringify({ msg: 'test response' })
+          |   };
+          | };
+        `);
+        const jsZip = new JsZip();
+        jsZip.file(`lambda/code.js`, code, { date: new Date(0) });
+        const zip = await jsZip.generateAsync({ type: 'nodebuffer', compression: 'deflate'[upper]() });
+        const lambdaBundle = new PetalTerraform.File('literal/testLambda.js.zip', zip);
+        const lambdaRole = new PetalTerraform.Resource('awsIamRole', 'testLambdaRole', {
+          name: `${ctx.pfx}-test-lambda-role`,
+          assumeRolePolicy: JSON.stringify({
+            Version: '2012-10-17',
+            Statement: [{
+              Action: 'sts:AssumeRole',
+              Effect: 'Allow',
+              Principal: { Service: 'lambda.amazonaws.com' }
+            }]
+          })
         });
+        const lambda = new PetalTerraform.Resource('awsLambdaFunction', 'testLambda', {
+          functionName: `${ctx.pfx}-test-lambda`,
+          role: lambdaRole.ref('arn'),
+          runtime: 'nodejs22.x',
+          handler: 'lambda/code.handler',
+          filename: lambdaBundle.refStr(),
+          sourceCodeHash: await hash(code)
+        });
+        
+        const api = new PetalTerraform.Resource('awsApiGatewayRestApi', 'testApi', {
+          name: `${ctx.pfx}-test-api`
+        });
+        const apiResource = new PetalTerraform.Resource('awsApiGatewayResource', 'testResource', {
+          restApiId: api.ref('id'),
+          parentId: api.ref('rootResourceId'),
+          pathPart: 'test'
+        });
+        const apiMethod = new PetalTerraform.Resource('awsApiGatewayMethod', 'testMethod', {
+          restApiId: api.ref('id'),
+          resourceId: apiResource.ref('id'),
+          httpMethod: 'GET',
+          authorization: 'NONE'
+        });
+        const apiIntegration = new PetalTerraform.Resource('awsApiGatewayIntegration', 'testIntegration', {
+          restApiId: api.ref('id'),
+          resourceId: apiResource.ref('id'),
+          httpMethod: apiMethod.ref('httpMethod'),
+          integrationHttpMethod: 'POST',
+          type: phrasing('awsProxy', 'camel', 'snake')[upper](),
+          uri: lambda.ref('invokeArn')
+        });
+        const lambdaPermission = new PetalTerraform.Resource('awsLambdaPermission', 'testApiPermission', {
+          statementId: 'AllowAPIGatewayInvoke',
+          action: 'lambda:InvokeFunction',
+          functionName: lambda.ref('functionName'),
+          principal: 'apigateway.amazonaws.com',
+          sourceArn: `\${${api.refStr('executionArn')}}/*/*`
+        });
+        const apiDeployment = new PetalTerraform.Resource('awsApiGatewayDeployment', 'testDeployment', {
+          restApiId: api.ref('id'),
+          dependsOn: [ apiIntegration.ref() ],
+          $lifecycle: { createBeforeDestroy: true }
+        });
+        const apiStage = new PetalTerraform.Resource('awsApiGatewayStage', 'testStage', {
+          restApiId: api.ref('id'),
+          deploymentId: apiDeployment.ref('id'),
+          stageName: 'test'
+        });
+        
+        return [ lambdaBundle, lambdaRole, lambda, api, apiResource, apiMethod, apiIntegration, lambdaPermission, apiDeployment, apiStage ];
         
       }
       
     };
-    class MyLilacTest extends MyLilac {};
-
+    class TestInfraFake extends TestInfra {};
+    
     const registry = new Registry({
-      MyLilac: { real: MyLilac, test: MyLilacTest }
+      MyLilac: { real: TestInfra, test: TestInfraFake }
     });
     
     const patioFact = fact.kid([ 'repo', 'patio' ]);
     const gardenFact = fact.kid([ 'repo', 'terraform' ]);
-    const garden = new Garden({
-      
+    const context: Context = {
       name: 'hi',
       fact: gardenFact,
       patioFact,
       
-      logger: Logger.dummy,
-      aws: {
-        accountId: 'aws-acct-id',
-        accessKey: { id: 'aws-key-id', '!secret': 'aws-key-secret' },
-        region: 'us-east-1'
-      },
-      registry,
+      logger: logger.kid('garden'),
+      // registry,
       
       maturity: 'm0',
       debug: false,
-      pfx: 'aaa',
-      
-      define: function*(ctx, { MyLilac }) {
-        
-        yield new MyLilac();
-        
-      }
-      
+      pfx: 'tezzzt',
+    };
+    
+    const garden = new Garden({
+      ...context,
+      registry,
+      define: function*(ctx, { MyLilac }) { yield new MyLilac(); }
     });
-    await garden.grow('real');
     
-    const gardenKids = await gardenFact.getKids();
-    assertEqual(
-      gardenKids,
-      { boot: cmpAny, main: cmpAny }
-    );
+    const soil = new Soil.LocalStack({ aws: { region: 'ca-central-1' }, registry });
+    await soil.run({ logger });
     
-    // TODO: HEEERE test the patio creation - it won't have any data currently as `logicalApply`
-    // isn't being used......... need something like a dummy terraform target
-    // const expandFact = async (fact: Fact) => {
-    //   
-    //   const [ data, kids ] = await Promise.all([
-    //     '<data?>',
-    //     // fact.getData('str'),
-    //     fact.getKids().then(kids => Promise[allObj](
-    //       kids[map](kid => expandFact(kid))
-    //     ))
-    //   ]);
-    //   
-    //   return kids;
-    //   
-    // };
-    // console.log(await expandFact(patioFact));
-    
-    const { boot: bootKids, main: mainKids } = await Promise[allObj](gardenKids[map](kid => kid.getKids()));
-    assertEqual(
-      { bootKids, mainKids },
-      {
-        bootKids: { '.terraform': cmpAny, '.terraform.lock.hcl': cmpAny, '.terraform.log': cmpAny, 'creds.ini': cmpAny, 'main.tf': cmpAny },
-        mainKids: {                                                                                'creds.ini': cmpAny, 'main.tf': cmpAny }
-      }
-    );
-    
-    // Read the creds.ini and main.tf from both boot and main
-    const tfData = await Promise[allObj]({ bootKids, mainKids }
-      [map](kids => Promise[allObj](
-        kids
-          [slice]([ 'creds.ini', 'main.tf' ])
-          [map](kid => kid.getData('str'))
-      )
-    ));
-    assertEqual(
-      tfData,
-      { 
-        bootKids: {
-          'creds.ini': String[baseline](`
-            | [default]
-            | aws_region            = us-east-1
-            | aws_access_key_id     = aws-key-id
-            | aws_secret_access_key = aws-key-secret
-          `),
-          'main.tf': String[baseline](`
-            | terraform {
-            |   required_providers {
-            |     aws = {
-            |       source  = "hashicorp/aws"
-            |       version = "~> 5.0"
-            |     }
-            |   }
-            | }
-            | provider "aws" {
-            |   shared_credentials_files = [ "creds.ini" ]
-            |   profile                  = "default"
-            |   region                   = "ca-central-1"
-            | }
-            | resource "aws_s3_bucket" "tf_state" {
-            |   bucket = "aaa-tf-state"
-            | }
-            | resource "aws_s3_bucket_ownership_controls" "tf_state" {
-            |   bucket = aws_s3_bucket.tf_state.bucket
-            |   rule {
-            |     object_ownership = "ObjectWriter"
-            |   }
-            | }
-            | resource "aws_s3_bucket_acl" "tf_state" {
-            |   bucket = aws_s3_bucket.tf_state.bucket
-            |   acl = "private"
-            |   depends_on = [ aws_s3_bucket_ownership_controls.tf_state ]
-            | }
-            | resource "aws_dynamodb_table" "tf_state" {
-            |   name         = "aaa-tf-state"
-            |   billing_mode = "PAY_PER_REQUEST"
-            |   hash_key     = "LockID"
-            |   attribute {
-            |     name = "LockID"
-            |     type = "S"
-            |   }
-            | }
-          `)
-        },
-        mainKids: {
-          'creds.ini': String[baseline](`
-            | [default]
-            | aws_region            = us-east-1
-            | aws_access_key_id     = aws-key-id
-            | aws_secret_access_key = aws-key-secret
-          `),
-          'main.tf': String[baseline](`
-            | terraform {
-            |   required_providers {
-            |     aws = {
-            |       source = "hashicorp/aws"
-            |       version = "~> 5.0"
-            |     }
-            |   }
-            |   backend s3 {
-            |     region = "us-east-1"
-            |     encrypt = true
-            |     bucket = "aaa-tf-state"
-            |     key = "tf"
-            |     dynamodb_table = "aaa-tf-state"
-            |     shared_credentials_files = [ "creds.ini" ]
-            |     profile = "default"
-            |   }
-            | }
-            | provider "aws" {
-            |   shared_credentials_files = [ "creds.ini" ]
-            |   profile = "default"
-            |   region = "ca-central-1"
-            |   alias = "ca_central_1"
-            | }
-            | provider "aws" {
-            |   shared_credentials_files = [ "creds.ini" ]
-            |   profile = "default"
-            |   region = "us-east-1"
-            | }
-            | provider "aws" {
-            |   shared_credentials_files = [ "creds.ini" ]
-            |   profile = "default"
-            |   region = "us-east-2"
-            |   alias = "us_east_2"
-            | }
-            | provider "aws" {
-            |   shared_credentials_files = [ "creds.ini" ]
-            |   profile = "default"
-            |   region = "us-west-1"
-            |   alias = "us_west_1"
-            | }
-            | provider "aws" {
-            |   shared_credentials_files = [ "creds.ini" ]
-            |   profile = "default"
-            |   region = "us-west-2"
-            |   alias = "us_west_2"
-            | }
-            | resource "test_type0" "test_handle" {
-            |   abc = 123
-            |   def = 456
-            |   cls = "MyLilac"
-            | }
-            | resource "test_type1" "test_handle" {
-            |   test_prop0 = 111
-            |   test_prop1 = "aaa"
-            |   test_prop2 = {
-            |     test_prop3 = "x"
-            |     test_prop4 = "y"
-            |   }
-            |   test_prop5 {
-            |     test_prop6 = "yolo"
-            |     test_prop7 = "haha"
-            |   }
-            |   test_prop5 {
-            |     test_prop8 = test_type0.test_handle.abc
-            |     test_prop9 = test_type0.test_handle.def
-            |   }
-            | }
-            | 
-          `)
-        }
-      }
-    );
+    try {
+      
+      await garden.grow({ type: 'real', soil });
+      
+      const client = new APIGatewayClient({
+        region: 'us-east-1',
+        endpoint: 'http://localhost:4566'
+      });
+
+      const { items: apis = [] } = await client.send(new GetRestApisCommand({}));
+      console.log({ apis });
+      const testApi = apis.find(item => item.name === 'tezzzt-test-api');
+      if (!testApi?.id) throw Error('test api missing')[mod]({ apis });
+      
+      // LocalStack API Gateway URL format: /restapis/{api-id}/{stage}/_user_request_/{path}
+      const testEndpoint = {
+        $req: null as any,
+        $res: null as any as { code: number, body: { msg: string } },
+        netProc: { proto: 'http' as const, addr: 'localhost', port: 4566 },
+        path: [ 'restapis', testApi.id, 'test', '_user_request_', 'test' ],
+        method: 'get' as const
+      };
+      const res = await http(testEndpoint, {} as any);
+      assertEqual(res, {
+        reqArgs: cmpAny,
+        code: 200,
+        body: { msg: 'test response' }
+      });
+      
+    } finally {
+      
+      logger.log({ $$: 'finish' });
+      await soil.end();
+      
+    }
     
   })}
   
