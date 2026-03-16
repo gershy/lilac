@@ -32,8 +32,8 @@
   "dependencies": {
     "@gershy/disk": "^0.0.10",
     "@gershy/logger": "^0.0.3",
+    "@gershy/nodejs-proc": "^0.0.2",
     "@gershy/util-http": "^0.0.4",
-    "@gershy/util-nodejs-proc": "^0.0.10",
     "@gershy/util-phrasing": "^0.0.4",
     "@gershy/util-try-with-healing": "^0.0.2"
   },

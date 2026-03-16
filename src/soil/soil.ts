@@ -1,7 +1,6 @@
 import { Fact, rootFact } from '@gershy/disk';
-import proc from '@gershy/util-nodejs-proc';
+import proc from '@gershy/nodejs-proc';
 import { Context, PetalTerraform, Registry } from '../main.ts';
-import tryWithHealing from '@gershy/util-try-with-healing';
 import retry from '@gershy/util-retry';
 import { RegionTerm } from '../util/aws.ts';
 import { skip } from '@gershy/clearing';
@@ -84,45 +83,108 @@ export namespace Soil {
       // Run a localStack container in docker, enabling `terraform apply` on an aws-like target
       
       const { image, port, containerName } = this.localStackDocker;
-      
-      // Deploy localstack to docker
-      await proc('docker info', this.procArgs).catch(({ output }) => { throw Error('docker unavailable')[mod]({ output }) });
-      logger.log({ $$: 'dockerAvailabilityConfirmed' });
-      
-      // Note that "overhead" services are essential for initializing localstack:
-      // - s3 + ddb used for terraform state locking
-      // - sts is used for credential validation
-      // - iam is needed for role creation
       const awsServices = this.getAwsServices();
-      await tryWithHealing({
+      
+      await logger.scope('dockerDeploy', { image, containerName, port }, async logger => {
         
-        // TODO HEEERE: allow redeploying to a persistent localStack setup
+        await proc('docker info', this.procArgs).catch(({ output }) => Error('docker unavailable')[fire]({ output }) );
+        logger.log({ $$: 'dockerAvailable' });
         
-        fn: () => {
+        const containerStatuses = await proc(`docker ps -a --filter "name=${containerName}" --format "{{.Names}},{{.State}}"`, this.procArgs).then(r => r.output
+          .split('\n')
+          [map](v => v.trim() || skip)
+          [map](v => v[cut](',', 1) as [ string, 'created' | 'running' | 'paused' | 'restarting' | 'removing' | 'exited' | 'dead' ])
+          [map](([ name, state ]) => ({ name, state }))
+        );
+        console.log({ containerStatuses });
+        
+        let state = containerStatuses.find(c => c.name === containerName)?.state ?? 'nonexistent';
+        
+        // First if a container already exists ensure it's compatible with our given config
+        if ([ 'running', 'paused', 'exited' ][has](state)) {
+          
+          const isExistingContainerReusable = await (async () => {
+            
+            // Check if the existing container is compatible with the current settings
+            
+            const { output: inspectJson } = await proc(`docker inspect ${containerName}`, this.procArgs);
+            
+            console.log('DOCKER INSPECT', { inspectJson });
+            
+            const [ containerInfo ] = JSON.parse(inspectJson) as Array<{
+              Config: { Image: string, Env: string[] },
+              HostConfig: { PortBindings: { [key: string]: Array<{ HostPort: string }> } }
+            }>;
+            
+            const containerImage = containerInfo.Config.Image;
+            const containerEnv = containerInfo.Config.Env[toObj](v => v[cut]('=', 1));
+            const containerPort = Number(containerInfo.HostConfig.PortBindings[`${LocalStack.localStackInternalPort}/tcp`]?.[0]?.HostPort ?? 0);
+            const services = (containerEnv.SERVICES ?? '').split(',').sort().join(',');
+            
+            return true
+              && containerImage              === image
+              && containerPort               === port
+              && containerEnv.DEFAULT_REGION === this.aws.region
+              && services                    === awsServices[toArr](v => v).sort().join(',');
+            
+          })();
+          
+          if (isExistingContainerReusable) {
+            
+            if (state === 'paused') await proc(`docker unpause ${containerName}`, this.procArgs);
+            if (state === 'exited') await proc(`docker start ${containerName}`, this.procArgs);
+            
+            logger.log({ $$: 'containerReused', state: state });
+            state = 'running';
+            
+          } else {
+            
+            // TODO: Clean up the existing container (and its lambda containers too)
+            // Something like `await proc(`docker rm ${containerName}`, this.procArgs);`
+            
+            const containers = [
+              containerName,
+              // ...containerStatuses
+              //   [map](c => c.name.startsWith('localstack-main-') ? c.name : skip)
+            ];
+            await proc(`docker rm -f ${containers.join(' ')}`, this.procArgs);
+            
+            logger.log({ $$: 'previousLocalStackRemoved', containers });
+            state = 'nonexistent';
+            
+          }
+          
+        }
+        
+        if (state === 'nonexistent') {
+          
           const runCmd = String[baseline](`
             | docker run
-            |   --rm
-            |   -d
-            |   --privileged${'' /* TODO: consider removing? */}
-            |   --name ${containerName}
-            |   -p ${port}:${LocalStack.localStackInternalPort}
-            |   -v /var/run/docker.sock:/var/run/docker.sock${'' /* Socket is better for non-WSL setups (TODO verify this?); it will be ignored if DOCKER_HOST is also provided */}
-            |   -e SERVICES=${awsServices[toArr](v => v).join(',')}
-            |   -e DEFAULT_REGION=${this.aws.region}
-            |   ${image}
+            | --rm
+            | -d
+            | --privileged${'' /* TODO: consider removing? */}
+            | --name ${containerName}
+            | -p ${port}:${LocalStack.localStackInternalPort}
+            | -v /var/run/docker.sock:/var/run/docker.sock
+            | -e SERVICES=${awsServices[toArr](v => v).join(',')}
+            | -e DEFAULT_REGION=${this.aws.region}
+            | ${image}
           `).split('\n')[map](ln => ln.trim() || skip).join(' ');
-          return proc(runCmd, this.procArgs);
-        },
-        canHeal: err => err.output.includes('already in use'),
-        heal: async () => {
-          // Kill any pre-existing container
-          await proc(`docker rm -f ${containerName}`, this.procArgs);
-          logger.log({ $$: 'preexistingKilled' });
+          await proc(runCmd, this.procArgs);
+          
+          state = 'running';
+          
         }
+        
+        if (state !== 'running') throw Error('container state unexpected')[mod]({ state });
+        
       });
       
-      // accept, reject, settle, finish
-      logger.log({ $$: 'containerActive' });
+      // Overall, get docker running - possibly restart or clean up previous containers
+      await (async () => {
+        
+        
+      })();
       
       const readyEndpoint = {
         $req: null as any,
@@ -168,7 +230,7 @@ export namespace Soil {
     public async end() {
       
       await proc(`docker rm -f ${this.localStackDocker.containerName}`, this.procArgs).catch(err => {
-        console.log('TODO: ERROR ENDING LOCALSTACK DOCKER CONTAINER:\n', err.output);
+        console.log('ERROR ENDING LOCALSTACK DOCKER CONTAINER:\n', err.output);
         return;
       });
       
@@ -225,7 +287,7 @@ export namespace Soil {
               usePathStyle: true,
               
               // Point the S3 backend at LocalStack when testing
-              endpoints: awsServices [toObj](svc => [ svc, localStackUrl ]),
+              endpoints: awsServices[toObj](svc => [ svc, localStackUrl ]),
             }
           });
           
@@ -250,12 +312,10 @@ export namespace Soil {
     }
     
   };
-  
   export class AwsCloud extends Base {
     
     // TODO: The terraform is commented out in main.ts
     
   };
-  
   
 };

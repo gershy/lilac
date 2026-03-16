@@ -1,5 +1,5 @@
 import { rootFact } from '@gershy/disk';
-import proc from '@gershy/util-nodejs-proc';
+import proc from '@gershy/nodejs-proc';
 
 await Promise.all(
   

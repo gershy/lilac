@@ -1,8 +1,8 @@
 import { rootFact } from '@gershy/disk';
-import proc, { ProcOpts } from '@gershy/util-nodejs-proc';
+import proc, { ProcOpts } from '@gershy/nodejs-proc';
 type Fact = typeof rootFact
 
-export default (fact: Fact, cmd: string, opts?: Partial<ProcOpts> & { tfUpdates: (data) => any }) => {
+export default (fact: Fact, cmd: string, opts?: Partial<ProcOpts>) => {
   
   const numTailingTfLogLines = 20;
   
@@ -14,7 +14,7 @@ export default (fact: Fact, cmd: string, opts?: Partial<ProcOpts> & { tfUpdates:
     return logDb;
   };
   
-  const { tfUpdates, ...moreOpts } = opts ?? {};
+  const { tfUpdates = null, ...moreOpts } = opts ?? {};
   
   const prm = proc(cmd, {
     timeoutMs: 0,

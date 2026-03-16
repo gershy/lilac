@@ -384,7 +384,9 @@ export class Garden<Reg extends Registry<any>> {
     // TODO: Some terraform commands fail when offline - can this be covered up? Possibly by
     // checking terraform binaries into the repo? (Cross-platform nightmare though...)
     
-    const result = await procTerraform(fact, `terraform init -input=false`);
+    const result = await procTerraform(fact, `terraform init -input=false`, {
+      onInput: async () => null
+    });
     logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
     return result;
     
