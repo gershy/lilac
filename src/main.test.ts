@@ -64,7 +64,7 @@ testRunner([
     //   - Mapping dynamic-length lists (dns) to infrastructure (needs multiple `terraform apply` calls)
     // - Test various error scenarios; add specific text match conditions to `tryWithHealing`
     
-    const tf = new PetalTerraform.Resource('awsWafv2WebAcl', 'happyWaf', {
+    const res = new PetalTerraform.Resource('awsWafv2WebAcl', 'happyWaf', {
       
       name: `tezzzt-coolFirewall`,
       scope: 'cloudfront'[upper](),
@@ -103,8 +103,8 @@ testRunner([
       
     });
     
-    const r = await tf.getResult();
-    assertEqual(r, String[baseline](`
+    const tf = await res.getResult();
+    assertEqual(tf, String[baseline](`
       | resource "aws_wafv2_web_acl" "happy_waf" {
       |   name = "tezzzt-coolFirewall"
       |   scope = "CLOUDFRONT"
@@ -154,8 +154,6 @@ testRunner([
       public static getAwsServices() { return [ 'lambda', 'apigateway', 'iam' ] as Soil.LocalStackAwsService[]; }
       
       public async getPetals(ctx: Context) {
-        
-        // Minimal API Gateway + Lambda: GET /test -> "hello"
         
         const code = String[baseline](`
           | module.exports.handler = async (e, ctx, cb) => {
@@ -270,12 +268,14 @@ testRunner([
         region: localStack.aws.region,
         endpoint: localStack.url
       });
-
+      
       const { items: apis = [] } = await client.send(new GetRestApisCommand({}));
+      
+      console.log({ apis });
+      
       const testApi = apis.find(item => item.name === 'tezzzt-test-api');
       if (!testApi?.id) throw Error('test api missing')[mod]({ apis });
       
-      // LocalStack API Gateway URL format: /restapis/{api-id}/{stage}/_user_request_/{path}
       const testEndpoint = {
         $req: null as any,
         $res: null as any as { code: number, body: { msg: string } },

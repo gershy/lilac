@@ -11,6 +11,11 @@ import Logger from '@gershy/logger';
 
 export namespace Soil {
   
+  export type PetalProjArgs = { s3Name: string, ddbName: string };
+  export type PetalProjResult = {
+    [K in 'boot' | 'main']: (args: PetalProjArgs) => SuperIterable<PetalTerraform.Base>
+  };
+  
   export type LocalStackAwsService = never
     // These types are recognized by localStack
     // May need to add (or removes) services as localStack evolves
@@ -22,16 +27,14 @@ export namespace Soil {
   
   export type BaseArgs = { registry: Registry<any> };
   export class Base {
-
+    
     protected registry: Registry<any>;
     constructor(args: BaseArgs) {
       this.registry = args.registry;
     }
     
-    public async getTerraformPetals(context: Context): Promise<{ [K in 'boot' | 'main']: () => SuperIterable<PetalTerraform.Base> }> {
-      
+    public async getTerraformPetals(ctx: Context): Promise<PetalProjResult> {
       throw Error('not implemented');
-      
     }
     
   };
@@ -76,7 +79,23 @@ export namespace Soil {
       const overheadAwsServices: LocalStackAwsService[] = [ 's3', 'dynamodb', 'sts', 'iam' ];
       return new Set([ ...overheadAwsServices, ...this.registry.getAwsServices() ]);
       
-    };
+    }
+    
+    private async getDockerContainers() {
+      
+      const { containerName } = this.localStackDocker;
+      const dockerPs = await proc(`docker ps -a --filter "name=${containerName}" --format "{{.Names}},{{.State}}"`, this.procArgs);
+      return dockerPs
+        .output
+        .split('\n')
+        [map](v => v.trim() || skip)
+        [map](v => v[cut](',', 1) as [ string, 'created' | 'running' | 'paused' | 'restarting' | 'removing' | 'exited' | 'dead' ])
+        [map](([ name, state ]) => ({ name, state }))
+        
+        // Exclude containers which match the `docker ps` filter but don't have the prefix
+        [map](v => (v.name === containerName || v.name[hasHead](`${containerName}-`)) ? v : skip);
+      
+    }
     
     public run(args: { logger: Logger }) { return args.logger.scope('localStack', {}, async logger => {
       
@@ -88,33 +107,23 @@ export namespace Soil {
       await logger.scope('dockerDeploy', { image, containerName, port }, async logger => {
         
         await proc('docker info', this.procArgs).catch(({ output }) => Error('docker unavailable')[fire]({ output }) );
-        logger.log({ $$: 'dockerAvailable' });
+        logger.log({ $$: 'dockerActive' });
         
-        const containerStatuses = await proc(`docker ps -a --filter "name=${containerName}" --format "{{.Names}},{{.State}}"`, this.procArgs).then(r => r.output
-          .split('\n')
-          [map](v => v.trim() || skip)
-          [map](v => v[cut](',', 1) as [ string, 'created' | 'running' | 'paused' | 'restarting' | 'removing' | 'exited' | 'dead' ])
-          [map](([ name, state ]) => ({ name, state }))
-        );
-        console.log({ containerStatuses });
-        
-        let state = containerStatuses.find(c => c.name === containerName)?.state ?? 'nonexistent';
+        const containers = await this.getDockerContainers();
+        let state = containers.find(c => c.name === containerName)?.state ?? 'nonexistent';
         
         // First if a container already exists ensure it's compatible with our given config
         if ([ 'running', 'paused', 'exited' ][has](state)) {
           
           const isExistingContainerReusable = await (async () => {
             
-            // Check if the existing container is compatible with the current settings
-            
             const { output: inspectJson } = await proc(`docker inspect ${containerName}`, this.procArgs);
-            
-            console.log('DOCKER INSPECT', { inspectJson });
             
             const [ containerInfo ] = JSON.parse(inspectJson) as Array<{
               Config: { Image: string, Env: string[] },
               HostConfig: { PortBindings: { [key: string]: Array<{ HostPort: string }> } }
             }>;
+            console.log('DOCKER INSPECT', containerInfo);
             
             const containerImage = containerInfo.Config.Image;
             const containerEnv = containerInfo.Config.Env[toObj](v => v[cut]('=', 1));
@@ -134,21 +143,12 @@ export namespace Soil {
             if (state === 'paused') await proc(`docker unpause ${containerName}`, this.procArgs);
             if (state === 'exited') await proc(`docker start ${containerName}`, this.procArgs);
             
-            logger.log({ $$: 'containerReused', state: state });
+            logger.log({ $$: 'containerReused' });
             state = 'running';
             
           } else {
             
-            // TODO: Clean up the existing container (and its lambda containers too)
-            // Something like `await proc(`docker rm ${containerName}`, this.procArgs);`
-            
-            const containers = [
-              containerName,
-              // ...containerStatuses
-              //   [map](c => c.name.startsWith('localstack-main-') ? c.name : skip)
-            ];
-            await proc(`docker rm -f ${containers.join(' ')}`, this.procArgs);
-            
+            await this.end({ containers });
             logger.log({ $$: 'previousLocalStackRemoved', containers });
             state = 'nonexistent';
             
@@ -180,12 +180,6 @@ export namespace Soil {
         
       });
       
-      // Overall, get docker running - possibly restart or clean up previous containers
-      await (async () => {
-        
-        
-      })();
-      
       const readyEndpoint = {
         $req: null as any,
         $res: null as any as { code: number, body: { services?: any[] } },
@@ -194,6 +188,9 @@ export namespace Soil {
         method: 'get' as const
       };
       const { val: { services } } = await retry({
+        
+        // TODO: If the container already exists, it seems its "s3" and "sts" services become unavailable when we try to reinitialize Soil pointing at it??
+        
         attempts: 20,
         delay: n => Math.min(500, 50 * n),
         fn: async () => {
@@ -214,32 +211,33 @@ export namespace Soil {
           
         },
         retryable: err => !!err.retry,
-      });
-      logger.log({ $$: 'localStackAvailabilityConfirmed', services });
+      }).catch(err => err[fire]({ numErrs: err.errs.length, errs: null }));
+      logger.log({ $$: 'localStackActive', services });
       
       return {
-        
         aws: { services: [ ...awsServices ], region: this.aws.region, },
         netProc: { proto: 'http', addr: 'localhost', port } as NetProc,
         url: `http://localhost:${port}`
-        
       };
       
     }); }
     
-    public async end() {
+    public async end(args?: { containers?: Awaited<ReturnType<Soil.LocalStack['getDockerContainers']>> }) {
       
-      await proc(`docker rm -f ${this.localStackDocker.containerName}`, this.procArgs).catch(err => {
-        console.log('ERROR ENDING LOCALSTACK DOCKER CONTAINER:\n', err.output);
-        return;
-      });
+      const containers = args?.containers ?? await this.getDockerContainers();
+      await proc(`docker rm -f ${containers.map(c => c.name).join(' ')}`, this.procArgs)
+        .catch(err => {
+          console.log('ERROR ENDING LOCALSTACK DOCKER CONTAINER:\n', err.output);
+          return;
+        });
+      
+      return containers;
       
     }
     
     public async getTerraformPetals(ctx: Context) {
       
       const { aws } = this;
-      
       const awsServices = [ ...this.getAwsServices() ];
       const netProc = { proto: 'http', addr: 'localhost', port: this.localStackDocker.port }
       const localStackUrl = `${netProc.proto}://${netProc.addr}:${netProc.port}`;
@@ -269,7 +267,7 @@ export namespace Soil {
           })
           
         ],
-        main: function*() {
+        main: function*(args) {
           
           yield new PetalTerraform.Terraform({
             $requiredProviders: {
@@ -281,10 +279,10 @@ export namespace Soil {
             '$backend.s3': {
               region:        aws.region,
               encrypt:       true,
-              bucket:        `${ctx.pfx}-tf-state`,
+              bucket:        args.s3Name,
               key:           `tf`,
-              dynamodbTable: `${ctx.pfx}-tf-state`,
-              usePathStyle: true,
+              dynamodbTable: args.ddbName,
+              usePathStyle:  true,
               
               // Point the S3 backend at LocalStack when testing
               endpoints: awsServices[toObj](svc => [ svc, localStackUrl ]),
@@ -312,9 +310,103 @@ export namespace Soil {
     }
     
   };
+  
+  export type AwsCloudArgs = BaseArgs & {
+    aws: {
+      region: RegionTerm,
+      accessKey: {
+        id: string,
+        '!secret': string
+      }
+    }
+  };
   export class AwsCloud extends Base {
     
-    // TODO: The terraform is commented out in main.ts
+    private aws: AwsCloudArgs['aws'];
+    
+    constructor(args: AwsCloudArgs) {
+      super(args);
+      this.aws = args.aws;
+    }
+    
+    public async getTerraformPetals(ctx: Context) {
+      
+      const { aws } = this;
+      return {
+        
+        boot: function*() {
+          
+          const tfAwsCredsFile = new PetalTerraform.File('creds.ini', String[baseline](`
+            | [default]
+            | aws_region            = ${aws.region}
+            | aws_access_key_id     = ${aws.accessKey.id}
+            | aws_secret_access_key = ${aws.accessKey['!secret']}
+          `));
+          yield tfAwsCredsFile;
+          yield new PetalTerraform.Terraform({
+            $requiredProviders: {
+              aws: {
+                source: 'hashicorp/aws',
+                version: `~> 5.0`
+              }
+            }
+          });
+          yield new PetalTerraform.Provider('aws', {
+            
+            sharedCredentialsFiles: [ tfAwsCredsFile.refStr() ],
+            profile: 'default', // References a section within the credentials file
+            region: aws.region,
+            
+          });
+          
+        },
+        main: function*(args) {
+          
+          const credFileProfile = 'default';
+          const tfAwsCredsFile = new PetalTerraform.File('creds.ini', String[baseline](`
+            | [${credFileProfile}]
+            | aws_region            = ${aws.region}
+            | aws_access_key_id     = ${aws.accessKey.id}
+            | aws_secret_access_key = ${aws.accessKey['!secret']}
+          `));
+          yield tfAwsCredsFile;
+          
+          yield new PetalTerraform.Terraform({
+            $requiredProviders: {
+              aws: {
+                source: 'hashicorp/aws',
+                version: `~> 5.0` // Consider parameterizing??
+              }
+            },
+            '$backend.s3': {
+              
+              sharedCredentialsFiles: [ tfAwsCredsFile.refStr() ],
+              profile:                credFileProfile,
+              region:                 aws.region,
+              encrypt:                true,
+              bucket:                args.s3Name,
+              key:                   `tf`,
+              dynamodbTable:         args.ddbName
+              
+            }
+          });
+          for (const { term } of awsRegions) yield new PetalTerraform.Provider('aws', {
+            
+            sharedCredentialsFiles: [ tfAwsCredsFile.refStr() ],
+            profile:                credFileProfile,
+            region:                 term,
+            
+            // Omit the alias for the default provider!
+            ...(term !== aws.region && { alias: term.split('-').join('_') }),
+            
+          });
+          
+        }
+        
+      };
+      
+      
+    }
     
   };
   

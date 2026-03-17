@@ -13,7 +13,7 @@
 
 import { PetalTerraform } from './petal/terraform/terraform.ts';
 import Logger from '@gershy/logger';
-import { Fact } from '@gershy/disk';
+import { Fact, rootFact } from '@gershy/disk';
 import { isCls, skip } from '@gershy/clearing';
 import procTerraform from './util/procTerraform.ts';
 import tryWithHealing from '@gershy/util-try-with-healing';
@@ -217,6 +217,10 @@ export class Garden<Reg extends Registry<any>> {
         
       });
       
+      // Pick names for the s3 and ddb terraform state persistence entities
+      const s3Name = `${this.ctx.pfx}-tf-state`;
+      const ddbName = `${this.ctx.pfx}-tf-state`;
+      
       // We generate *two* terraform projects for every logical project - overall we want a
       // terraform project which saves its state in the cloud; in order to do this we need to first
       // provision the cloud storage engines to save the terraform state. The "boot" tf project
@@ -231,44 +235,11 @@ export class Garden<Reg extends Registry<any>> {
             
             // Include the soil's infrastructure
             const { boot } = await soilTfPetalsPrm;
-            for await (const petal of await boot())
-              await writePetalTfAndFiles(petal);
-            
-            /*const tfAwsCredsFile = await writePetalTfAndFiles(new PetalTerraform.File('creds.ini', String[baseline](`
-              | [default]
-              | aws_region            = ${this.ctx.aws.region}
-              | aws_access_key_id     = ${this.ctx.aws.accessKey.id}
-              | aws_secret_access_key = ${this.ctx.aws.accessKey['!secret']}
-            `)));
-            const terraform = await writePetalTfAndFiles(new PetalTerraform.Terraform({
-              $requiredProviders: {
-                aws: {
-                  source: 'hashicorp/aws',
-                  version: `~> 5.0`
-                }
-              }
-            }));
-            const provider = await writePetalTfAndFiles(new PetalTerraform.Provider('aws', {
-              
-              sharedCredentialsFiles: [ tfAwsCredsFile.refStr() ],
-              profile: 'default', // References a section within the credentials file
-              region: this.ctx.aws.region,
-              
-              ...(deployTarget && {
-                skipCredentialsValidation: true,
-                skipRequestingAccountId: true,
-                s3UsePathStyle: true, // Otherwise requests can go to "bucket.s3.amazonaws.com", outside localStack
-                
-                // Note localStack always includes s3 and ddb (required for tf state storage)
-                $endpoints: deployTarget.awsServices
-                  [toObj](svc => [ svc, `${deployTarget.netProc.proto}://${deployTarget.netProc.addr}:${deployTarget.netProc.port}` ])
-              })
-              
-            }));*/
+            for await (const petal of await boot({ s3Name, ddbName })) await writePetalTfAndFiles(petal);
             
             // Create s3 tf state bucket
             const s3 = await writePetalTfAndFiles(new PetalTerraform.Resource('awsS3Bucket', 'tfState', {
-              bucket: `${this.ctx.pfx}-tf-state`
+              bucket: s3Name
             }));
             const s3Controls = await writePetalTfAndFiles(new PetalTerraform.Resource('awsS3BucketOwnershipControls', 'tfState', {
               bucket: s3.ref('bucket'),
@@ -277,17 +248,17 @@ export class Garden<Reg extends Registry<any>> {
               }
             }));
             await writePetalTfAndFiles(new PetalTerraform.Resource('awsS3BucketAcl', 'tfState', {
-              bucket: s3.ref('bucket'),
-              acl: 'private',
+              bucket:    s3.ref('bucket'),
+              acl:       'private',
               dependsOn: [ s3Controls.ref() ]
             }));
             
             // Create ddb tf state locking table
             await writePetalTfAndFiles(new PetalTerraform.Resource('awsDynamodbTable', 'tfState', {
-              name: `${this.ctx.pfx}-tf-state`,
+              name:        ddbName,
               billingMode: phrasing('payPerRequest', 'camel', 'snake')[upper](),
-              hashKey: 'LockID',
-              $attribute: { name: 'LockID', type: 'S' }
+              hashKey:     'LockID',
+              $attribute:  { name: 'LockID', type: 'S' }
             }));
             
           }
@@ -301,65 +272,9 @@ export class Garden<Reg extends Registry<any>> {
             
             // Include the soil's infrastructure
             const { main } = await soilTfPetalsPrm;
-            for await (const petal of await main())
-              await writePetalTfAndFiles(petal);
+            for await (const petal of await main({ s3Name, ddbName })) await writePetalTfAndFiles(petal);
             
-            /*
-            // Creds, terraform, and a provider for each region
-            const tfAwsCredsFile = await writePetalTfAndFiles(new PetalTerraform.File('creds.ini', String[baseline](`
-              | [default]
-              | aws_region            = ${this.ctx.aws.region}
-              | aws_access_key_id     = ${this.ctx.aws.accessKey.id}
-              | aws_secret_access_key = ${this.ctx.aws.accessKey['!secret']}
-            `)));
-            const terraform = await writePetalTfAndFiles(new PetalTerraform.Terraform({
-              $requiredProviders: {
-                aws: {
-                  source: 'hashicorp/aws',
-                  version: `~> 5.0` // Consider parameterizing??
-                }
-              },
-              '$backend.s3': {
-                region: this.ctx.aws.region,
-                encrypt:       true,
-                
-                // Note references not allowed in terraform.backend!!
-                bucket:        `${this.ctx.pfx}-tf-state`,
-                key:           `tf`,
-                
-                dynamodbTable: `${this.ctx.pfx}-tf-state`,  // Dynamodb table is aws-account-wide
-                sharedCredentialsFiles: [ tfAwsCredsFile.refStr() ],
-                profile: 'default', // References a section within the credentials file
-                
-                // Point the S3 backend at LocalStack when testing
-                ...(deployTarget && {
-                  endpoints: deployTarget.awsServices
-                    [toObj](service => [ service, `${deployTarget.netProc.proto}://${deployTarget.netProc.addr}:${deployTarget.netProc.port}` ]),
-                  usePathStyle: true,
-                })
-              }
-            }));
-            for (const { term } of awsRegions) await writePetalTfAndFiles(new PetalTerraform.Provider('aws', {
-              
-              sharedCredentialsFiles: [ tfAwsCredsFile.refStr() ],
-              profile: 'default', // References a section within the credentials file
-              region: term,
-              
-              // Omit the alias for the default provider!
-              ...(term !== this.ctx.aws.region && { alias: term.split('-').join('_') }),
-              
-              // Point providers at LocalStack when testing
-              ...(deployTarget && {
-                s3UsePathStyle: true,
-                $endpoints: deployTarget.awsServices
-                  [toObj](svc => [ svc, `${deployTarget.netProc.proto}://${deployTarget.netProc.addr}:${deployTarget.netProc.port}` ])
-              })
-              
-            }));
-            */
-            
-            for await (const petal of this.getPetals())
-              await writePetalTfAndFiles(petal);
+            for await (const petal of this.getPetals()) await writePetalTfAndFiles(petal);
             
             // Propagate any terraform lock found in version control
             const patioTfHclFact = this.ctx.patioFact.kid([ 'main', '.terraform.lock.hcl' ]);
@@ -385,7 +300,7 @@ export class Garden<Reg extends Registry<any>> {
     // checking terraform binaries into the repo? (Cross-platform nightmare though...)
     
     const result = await procTerraform(fact, `terraform init -input=false`, {
-      onInput: async () => null
+      onData: async (mode, data) => logger.log({ $$: 'notice', mode, data }) ?? null
     });
     logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
     return result;
