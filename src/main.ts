@@ -12,8 +12,8 @@
 // Support test-mode (Flowers need to be able to do setup, share config, write to volumes, etc)
 
 import { PetalTerraform } from './petal/terraform/terraform.ts';
-import Logger from '@gershy/logger';
-import { Fact, rootFact } from '@gershy/disk';
+import type Logger from '@gershy/logger';
+import type { Fact } from '@gershy/disk';
 import { isCls, skip } from '@gershy/clearing';
 import procTerraform from './util/procTerraform.ts';
 import tryWithHealing from '@gershy/util-try-with-healing';
@@ -102,22 +102,6 @@ export class Garden<Reg extends Registry<any>> {
   constructor(args: {
     
     context: Context,
-    /*
-    name: string, // Name of the system/garden
-    logger: Logger,
-    fact: Fact, // The fact within which generated iac will be stored
-    patioFact: Fact, // A subset of generated iac may be intended for source-control (e.g. .terraform.lock.hcl) - this fact should point within a source-controlled repo to maintain any such iac
-    
-    // aws: {
-    //   accountId: string,
-    //   accessKey: { id: string, '!secret': string },
-    //   region: string
-    // },
-    maturity: string,
-    debug:    boolean,
-    pfx:      string, // Establishes a namespace for all resources provisioned for the particular app
-    */
-    
     registry: Reg,
     define:   Garden<Reg>['def']
     
@@ -209,7 +193,7 @@ export class Garden<Reg extends Registry<any>> {
             return petal;
             
           });
-          await stream.end(); // TODO: @gershy/disk should allow `await headStream.end()`
+          await stream.end();
           
         });
         

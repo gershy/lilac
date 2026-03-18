@@ -1,4 +1,4 @@
-import { Fact, rootFact } from '@gershy/disk';
+import type { Fact } from '@gershy/disk';
 import proc, { ProcOpts } from '@gershy/nodejs-proc';
 
 export type ProcTerraformArgs = ProcOpts & {};

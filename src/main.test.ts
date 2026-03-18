@@ -194,7 +194,7 @@ testRunner([
         const apiResource = new PetalTerraform.Resource('awsApiGatewayResource', 'testResource', {
           restApiId: api.ref('id'),
           parentId: api.ref('rootResourceId'),
-          pathPart: 'test'
+          pathPart: 'test-api'
         });
         const apiMethod = new PetalTerraform.Resource('awsApiGatewayMethod', 'testMethod', {
           restApiId: api.ref('id'),
@@ -225,7 +225,7 @@ testRunner([
         const apiStage = new PetalTerraform.Resource('awsApiGatewayStage', 'testStage', {
           restApiId: api.ref('id'),
           deploymentId: apiDeployment.ref('id'),
-          stageName: 'test'
+          stageName: 'test-stage'
         });
         
         return [ lambdaBundle, lambdaRole, lambda, api, apiResource, apiMethod, apiIntegration, lambdaPermission, apiDeployment, apiStage ];
@@ -280,7 +280,7 @@ testRunner([
         $req: null as any,
         $res: null as any as { code: number, body: { msg: string } },
         netProc: { proto: 'http' as const, addr: 'localhost', port: 4566 },
-        path: [ 'restapis', testApi.id, 'test', '_user_request_', 'test' ],
+        path: [ 'restapis', testApi.id, 'test-stage', '_user_request_', 'test-api' ],
         method: 'get' as const
       };
       const res = await http(testEndpoint, {} as any);

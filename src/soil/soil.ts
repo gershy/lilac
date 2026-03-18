@@ -1,4 +1,3 @@
-import { Fact, rootFact } from '@gershy/disk';
 import proc from '@gershy/nodejs-proc';
 import { Context, PetalTerraform, Registry } from '../main.ts';
 import retry from '@gershy/util-retry';
@@ -7,7 +6,7 @@ import { skip } from '@gershy/clearing';
 import http, { NetProc } from '@gershy/util-http';
 import { regions as awsRegions } from '../util/aws.ts';
 import { SuperIterable } from '../util/superIterable.ts';
-import Logger from '@gershy/logger';
+import type Logger from '@gershy/logger';
 
 export namespace Soil {
   
@@ -55,7 +54,7 @@ export namespace Soil {
     
     private aws: LocalStackArgs['aws'];
     private localStackDocker: NonNullable<Required<LocalStackArgs['localStackDocker']>>;
-    private procArgs: { cwd: Fact, env: Obj<string> | NodeJS.ProcessEnv };
+    private procArgs: { env: Obj<string> | NodeJS.ProcessEnv };
     
     constructor(args: LocalStackArgs) {
       
@@ -66,7 +65,7 @@ export namespace Soil {
         port: LocalStack.localStackInternalPort,
         containerName: 'gershyLilacLocalStack'
       }[merge](args.localStackDocker ?? {});
-      this.procArgs = { cwd: rootFact, env: process.env };
+      this.procArgs = { env: process.env };
       
     }
     
