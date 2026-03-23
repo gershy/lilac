@@ -2,11 +2,29 @@ import proc from '@gershy/nodejs-proc';
 import { Context, PetalTerraform, Registry } from '../main.ts';
 import retry from '@gershy/util-retry';
 import { RegionTerm } from '../util/aws.ts';
-import { skip } from '@gershy/clearing';
+import '@gershy/clearing';
 import http, { NetProc } from '@gershy/util-http';
 import { regions as awsRegions } from '../util/aws.ts';
 import { SuperIterable } from '../util/superIterable.ts';
 import type Logger from '@gershy/logger';
+import { APIGatewayClient, GetRestApisCommand, RestApi } from '@aws-sdk/client-api-gateway';
+
+const { skip } = clearing;
+
+const merge:    typeof cl.merge    = cl.merge;
+const map:      typeof cl.map      = cl.map;
+const cut:      typeof cl.cut      = cl.cut;
+const fire:     typeof cl.fire     = cl.fire;
+const hasHead:  typeof cl.hasHead  = cl.hasHead;
+const has:      typeof cl.has      = cl.has;
+const toObj:    typeof cl.toObj    = cl.toObj;
+const toArr:    typeof cl.toArr    = cl.toArr;
+const baseline: typeof cl.baseline = cl.baseline;
+const mod:      typeof cl.mod      = cl.mod;
+const group:    typeof cl.group    = cl.group;
+
+// TODO: Consider splitting each Soil implementation into its own unit
+// (Soil.LocalStack unit can, e.g., isolate the `@aws-sdk/client-api-gateway` dependency)
 
 export namespace Soil {
   
@@ -24,11 +42,13 @@ export namespace Soil {
     | 'route53' | 'route53resolver' | 's3' | 's3control' | 'scheduler' | 'secretsmanager' | 'ses'
     | 'sns' | 'sqs' | 'ssm' | 'stepfunctions' | 'sts' | 'support' | 'swf' | 'transcribe';
   
-  export type BaseArgs = { registry: Registry<any> };
+  export type BaseArgs = { logger: Logger, registry: Registry<any> };
   export class Base {
     
+    protected logger: Logger;
     protected registry: Registry<any>;
     constructor(args: BaseArgs) {
+      this.logger = args.logger;
       this.registry = args.registry;
     }
     
@@ -39,9 +59,7 @@ export namespace Soil {
   };
   
   export type LocalStackArgs = BaseArgs & {
-    aws: {
-      region: RegionTerm,
-    },
+    aws: { region: RegionTerm }, // TODO: What region is this? The default region? Does localStack support resources in multiple?
     localStackDocker?: {
       image?: `localstack/localstack${':' | ':latest' | '@'}${string}`, // E.g. 'localstack/localstack:latest'
       containerName?: string,
@@ -54,18 +72,16 @@ export namespace Soil {
     
     private aws: LocalStackArgs['aws'];
     private localStackDocker: NonNullable<Required<LocalStackArgs['localStackDocker']>>;
-    private procArgs: { env: Obj<string> | NodeJS.ProcessEnv };
     
     constructor(args: LocalStackArgs) {
       
-      super(args);
+      super({ ...args, logger: args.logger.kid('localStack') });
       this.aws = args.aws;
       this.localStackDocker = {
         image: 'localstack/localstack:latest',
         port: LocalStack.localStackInternalPort,
         containerName: 'gershyLilacLocalStack'
       }[merge](args.localStackDocker ?? {});
-      this.procArgs = { env: process.env };
       
     }
     
@@ -83,7 +99,7 @@ export namespace Soil {
     private async getDockerContainers() {
       
       const { containerName } = this.localStackDocker;
-      const dockerPs = await proc(`docker ps -a --filter "name=${containerName}" --format "{{.Names}},{{.State}}"`, this.procArgs);
+      const dockerPs = await proc(`docker ps -a --filter "name=${containerName}" --format "{{.Names}},{{.State}}"`);
       return dockerPs
         .output
         .split('\n')
@@ -96,7 +112,7 @@ export namespace Soil {
       
     }
     
-    public run(args: { logger: Logger }) { return args.logger.scope('localStack', {}, async logger => {
+    public run() { return this.logger.scope('run', {}, async logger => {
       
       // Run a localStack container in docker, enabling `terraform apply` on an aws-like target
       
@@ -105,7 +121,7 @@ export namespace Soil {
       
       await logger.scope('dockerDeploy', { image, containerName, port }, async logger => {
         
-        await proc('docker info', this.procArgs).catch(({ output }) => Error('docker unavailable')[fire]({ output }) );
+        await proc('docker info').catch(({ output }) => Error('docker unavailable')[fire]({ output }) );
         logger.log({ $$: 'dockerActive' });
         
         const containers = await this.getDockerContainers();
@@ -116,13 +132,13 @@ export namespace Soil {
           
           const isExistingContainerReusable = await (async () => {
             
-            const { output: inspectJson } = await proc(`docker inspect ${containerName}`, this.procArgs);
+            const { output: inspectJson } = await proc(`docker inspect ${containerName}`);
             
             const [ containerInfo ] = JSON.parse(inspectJson) as Array<{
               Config: { Image: string, Env: string[] },
               HostConfig: { PortBindings: { [key: string]: Array<{ HostPort: string }> } }
             }>;
-            console.log('DOCKER INSPECT', containerInfo);
+            logger.log({ $$: 'reusableCheck', containerInfo });
             
             const containerImage = containerInfo.Config.Image;
             const containerEnv = containerInfo.Config.Env[toObj](v => v[cut]('=', 1));
@@ -139,8 +155,8 @@ export namespace Soil {
           
           if (isExistingContainerReusable) {
             
-            if (state === 'paused') await proc(`docker unpause ${containerName}`, this.procArgs);
-            if (state === 'exited') await proc(`docker start ${containerName}`, this.procArgs);
+            if (state === 'paused') await proc(`docker unpause ${containerName}`);
+            if (state === 'exited') await proc(`docker start ${containerName}`);
             
             logger.log({ $$: 'containerReused' });
             state = 'running';
@@ -169,7 +185,7 @@ export namespace Soil {
             | -e DEFAULT_REGION=${this.aws.region}
             | ${image}
           `).split('\n')[map](ln => ln.trim() || skip).join(' ');
-          await proc(runCmd, this.procArgs);
+          await proc(runCmd);
           
           state = 'running';
           
@@ -206,31 +222,40 @@ export namespace Soil {
           if (missingServices.length)
             throw Error('services unavailable')[mod]({ missingServices })[mod]({ retry: true });
           
-          return { services: ya };
+          return { res, services: ya };
           
         },
         retryable: err => !!err.retry,
       }).catch(err => err[fire]({ numErrs: err.errs.length, errs: null }));
       logger.log({ $$: 'localStackActive', services });
       
+      const netProc: NetProc = { proto: 'http', addr: 'localhost', port };
       return {
-        aws: { services: [ ...awsServices ], region: this.aws.region, },
-        netProc: { proto: 'http', addr: 'localhost', port } as NetProc,
-        url: `http://localhost:${port}`
+        aws: { services: [ ...awsServices ], region: this.aws.region },
+        netProc,
+        getApis: async () => {
+          const client = new APIGatewayClient({ region: this.aws.region, endpoint: `${netProc.proto}://${netProc.addr}:${netProc.port}` });
+          const apiRes = await client.send(new GetRestApisCommand({}));
+          const apis = (apiRes.items ?? []) as (RestApi & { id: string, name: string })[];
+          return apis[toObj](api => [ api.name, api ]);
+        }
       };
       
     }); }
     
     public async end(args?: { containers?: Awaited<ReturnType<Soil.LocalStack['getDockerContainers']>> }) {
       
-      const containers = args?.containers ?? await this.getDockerContainers();
-      await proc(`docker rm -f ${containers.map(c => c.name).join(' ')}`, this.procArgs)
-        .catch(err => {
-          console.log('ERROR ENDING LOCALSTACK DOCKER CONTAINER:\n', err.output);
+      return this.logger.scope('end', {}, async logger => {
+        
+        const containers = args?.containers ?? await this.getDockerContainers();
+        await proc(`docker rm -f ${containers.map(c => c.name).join(' ')}`).catch(err => {
+          logger.log({ $$: 'glitch', cmdOutput: err.output });
           return;
         });
+        return containers;
+        
+      });
       
-      return containers;
       
     }
     

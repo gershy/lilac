@@ -1,4 +1,11 @@
-import { skip, inCls, getCls, getClsName } from '@gershy/clearing';
+import '@gershy/clearing';
+
+const { skip, inCls, getCls, getClsName } = clearing;
+const count: typeof cl.count = cl.count;
+const toArr: typeof cl.toArr = cl.toArr;
+const has:   typeof cl.has   = cl.has;
+const mod:   typeof cl.mod   = cl.mod;
+const limn:  typeof cl.limn  = cl.limn;
 
 export const cmpAny = Symbol('@gershy/test/cmp/any');
 

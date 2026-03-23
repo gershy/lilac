@@ -1,7 +1,7 @@
 import type { Fact } from '@gershy/disk';
 import proc, { ProcOpts } from '@gershy/nodejs-proc';
 
-export type ProcTerraformArgs = ProcOpts & {};
+export type ProcTerraformArgs = ProcOpts & { config?: string };
 export default (fact: Fact, cmd: string, opts: ProcTerraformArgs = {}) => {
   
   const numTailingTfLogLines = 20;
@@ -18,7 +18,12 @@ export default (fact: Fact, cmd: string, opts: ProcTerraformArgs = {}) => {
     timeoutMs: 0,
     ...opts,
     cwd: fact,
-    env: { TF_DATA_DIR: '' }
+    env: {
+      ...process.env,
+      TF_DATA_DIR: '',
+      TF_CLI_CONFIG_FILE: '',
+      ...opts.env
+    }
   });
   
   return Object.assign(prm.then(
@@ -27,8 +32,8 @@ export default (fact: Fact, cmd: string, opts: ProcTerraformArgs = {}) => {
       return { logDb, output: result.output.split('\n').slice(-numTailingTfLogLines).join('\n') };
     },
     async err => {
-      const logDb = await writeLog(err.output ?? err[limn]());
-      throw Error(`terraform failed (${err.message})`)[mod]({
+      const logDb = await writeLog(err.output ?? err[cl.limn]());
+      throw Error(`terraform failed (${err.message})`)[cl.mod]({
         logDb,
         ...(err.output ? { output: err.output.split('\n').slice(-numTailingTfLogLines).join('\n') } : { cause: err })
       });

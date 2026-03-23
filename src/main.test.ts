@@ -8,6 +8,14 @@ import phrasing from '@gershy/util-phrasing';
 import JsZip from 'jszip';
 import { APIGatewayClient, GetRestApisCommand } from '@aws-sdk/client-api-gateway';
 import { Soil } from './soil/soil.ts';
+import os from 'node:os';
+import path from 'node:path';
+
+const allObj:   typeof cl.allObj   = cl.allObj;
+const map:      typeof cl.map      = cl.map;
+const upper:    typeof cl.upper    = cl.upper;
+const baseline: typeof cl.baseline = cl.baseline;
+const mod:      typeof cl.mod      = cl.mod;
 
 // Type testing
 (async () => {
@@ -143,15 +151,16 @@ testRunner([
     
     // Deploy the simplest possible api to localStack, and test if querying it works
     
-    const logger = new Logger('test', {}, {}, (...args) => {
-      console.log(args);
-    });
+    // const logger = new Logger('test', {}, {}, (...args) => {
+    //   console.log(args);
+    // });
+    const logger = Logger.dummy;
     
     logger.log({ $$: 'launch' });
     
     class TestInfra extends Flower {
       
-      public static getAwsServices() { return [ 'lambda', 'apigateway', 'iam' ] as Soil.LocalStackAwsService[]; }
+      public static getAwsServices(): Soil.LocalStackAwsService[] { return [ 'lambda', 'apigateway', 'iam' ]; }
       
       public async getPetals(ctx: Context) {
         
@@ -207,7 +216,7 @@ testRunner([
           resourceId: apiResource.ref('id'),
           httpMethod: apiMethod.ref('httpMethod'),
           integrationHttpMethod: 'POST',
-          type: phrasing('awsProxy', 'camel', 'snake')[upper](),
+          type: phrasing('camel->snake', 'awsProxy')[upper](),
           uri: lambda.ref('invokeArn')
         });
         const lambdaPermission = new PetalTerraform.Resource('awsLambdaPermission', 'testApiPermission', {
@@ -239,12 +248,14 @@ testRunner([
       MyLilac: { real: TestInfra, test: TestInfraFake }
     });
     
+    const shedFact = rootFact.kid([ ...os.tmpdir().split(path.sep), '@gershy' ]);
     const patioFact = fact.kid([ 'repo', 'patio' ]);
     const gardenFact = fact.kid([ 'repo', 'terraform' ]);
     const context: Context = {
       name: 'hi',
       fact: gardenFact,
       patioFact,
+      shedFact,
       logger: logger.kid('garden'),
       maturity: 'm0',
       debug: false,
@@ -257,24 +268,18 @@ testRunner([
       define: (ctx, registry) => [ new registry.MyLilac() ]
     });
     
-    const soil = new Soil.LocalStack({ aws: { region: 'ca-central-1' }, registry });
-    const localStack = await soil.run({ logger });
+    const soil = new Soil.LocalStack({ logger, aws: { region: 'ca-central-1' }, registry });
+    const localStack = await soil.run();
     
     try {
       
       await garden.grow({ type: 'real', soil });
       
-      const client = new APIGatewayClient({
-        region: localStack.aws.region,
-        endpoint: localStack.url
-      });
+      const apis = await localStack.getApis();
       
-      const { items: apis = [] } = await client.send(new GetRestApisCommand({}));
-      
-      console.log({ apis });
-      
-      const testApi = apis.find(item => item.name === 'tezzzt-test-api');
-      if (!testApi?.id) throw Error('test api missing')[mod]({ apis });
+      const testApiName = `${context.pfx}-test-api`;
+      const testApi = apis[cl.at](testApiName, null);
+      if (!testApi) throw Error('test api missing')[mod]({ testApiName, apis });
       
       const testEndpoint = {
         $req: null as any,

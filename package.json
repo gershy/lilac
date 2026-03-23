@@ -19,23 +19,23 @@
   "homepage": "https://github.com/gershy/lilac#readme",
   "license": "ISC",
   "peerDependencies": {
-    "@gershy/clearing": "^0.0.29"
+    "@gershy/clearing": "^0.0.36"
   },
   "devDependencies": {
-    "@aws-sdk/client-api-gateway": "^3.893.0",
-    "@gershy/disk": "^0.0.10",
-    "@gershy/logger": "^0.0.4",
-    "@gershy/util-hash": "^0.0.3",
+    "@gershy/disk": "^0.0.12",
+    "@gershy/logger": "^0.0.8",
+    "@gershy/util-hash": "^0.0.5",
     "@types/node": "^24.10.1",
     "jszip": "^3.10.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@gershy/nodejs-proc": "^0.0.4",
-    "@gershy/util-http": "^0.0.4",
-    "@gershy/util-phrasing": "^0.0.4",
-    "@gershy/util-try-with-healing": "^0.0.2"
+    "@aws-sdk/client-api-gateway": "^3.893.0",
+    "@gershy/nodejs-proc": "^0.0.6",
+    "@gershy/util-http": "^0.0.7",
+    "@gershy/util-phrasing": "^0.0.5",
+    "@gershy/util-try-with-healing": "^0.0.4"
   },
   "type": "module",
   "files": [

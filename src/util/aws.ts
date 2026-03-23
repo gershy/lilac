@@ -1,9 +1,9 @@
-import { isCls } from '@gershy/clearing';
+import '@gershy/clearing';
 import ph from '@gershy/util-phrasing';
 
 export const capitalKeys = (v: any) => {
-  if (isCls(v, Array)) return v[map](v => capitalKeys(v));
-  if (isCls(v, Object)) return v[mapk]((val, key) => [ ph(key, 'camel', 'kamel'), capitalKeys(val) ]);
+  if (cl.isCls(v, Array))  return v[cl.map](v => capitalKeys(v));
+  if (cl.isCls(v, Object)) return v[cl.mapk]((val, key) => [ ph('camel->kamel', key), capitalKeys(val) ]);
   return v;
 };
 
@@ -52,7 +52,7 @@ export const regions = ([
   // 'us-gov-east-1',
   // 'us-gov-west-1',
   
-] as const)[map](region => {
+] as const)[cl.map](region => {
   
   type Region = Extract<typeof region, string>;
   type RegionPcs = Region extends `${infer Country}-${infer Area}-${infer Number}` ? [ Country, Area, Number ] : never;

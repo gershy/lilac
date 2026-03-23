@@ -1,4 +1,6 @@
-import { isCls, getClsName } from '@gershy/clearing';
+import '@gershy/clearing';
+
+const { isCls, getClsName } = clearing;
 
 const normalize = (val: any, seen = new Set<any>()) => {
   
@@ -14,7 +16,7 @@ const normalize = (val: any, seen = new Set<any>()) => {
   if (seen.has(val)) return '<<!circ!>>';
   seen.add(val);
   
-  if (isCls(val, Array)) return val[map](v => normalize(v, seen));
+  if (isCls(val, Array)) return val[cl.map](v => normalize(v, seen));
   if (isCls(val, Object)) return normalize(Object.entries(val).sort((e0, e1) => e0[0] < e1[0] ? -1 : 1), seen);
   
   return normalize({ $form: getClsName(val), ...val }, seen);

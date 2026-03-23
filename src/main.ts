@@ -4,29 +4,38 @@
 // provider/petal combos - e.g. "api" flower would need to support ,api.getCloudformationPetals,
 // api.getTerraformPetals, etc... supporting just terraform for now
 
-// Watch out when working lilac into an npm dependency, need to allow the user a way to declare
-// their absolute repo path (so "<repo>/..." filenames work in any setup!)
-
-// Can region be dealt with any better??
-
 // Support test-mode (Flowers need to be able to do setup, share config, write to volumes, etc)
 
 import { PetalTerraform } from './petal/terraform/terraform.ts';
 import type Logger from '@gershy/logger';
-import type { Fact } from '@gershy/disk';
-import { isCls, skip } from '@gershy/clearing';
+import { rootFact, type Fact } from '@gershy/disk';
+import  '@gershy/clearing';
 import procTerraform from './util/procTerraform.ts';
 import tryWithHealing from '@gershy/util-try-with-healing';
 import phrasing from '@gershy/util-phrasing';
 import { Soil } from './soil/soil.ts';
 import { SuperIterable } from './util/superIterable.ts';
+import { sep as pathSep } from 'node:path';
+import { tmpdir as osTempDiskDir } from 'node:os';
+import proc from '@gershy/nodejs-proc';
 
+const { isCls, skip } = cl;
+const toArr:    typeof cl.toArr    = cl.toArr;
+const allObj:   typeof cl.allObj   = cl.allObj;
+const has:      typeof cl.has      = cl.has;
+const map:      typeof cl.map      = cl.map;
+const mod:      typeof cl.mod      = cl.mod;
+const walk:     typeof cl.walk     = cl.walk;
+const merge:    typeof cl.merge    = cl.merge;
+const upper:    typeof cl.upper    = cl.upper;
+const baseline: typeof cl.baseline = cl.baseline;
 export type Context = {
   
   name:       string, // Name of the system/garden
   logger:     Logger,
   fact:       Fact,
   patioFact:  Fact,
+  shedFact:   Fact,
   maturity:   string, // TODO: A Lilac run has a maturity? Or a single Lilac build supports multiple maturities?
   debug:      boolean,
   pfx:        string // Establishes a namespace for all resources provisioned for the particular app
@@ -77,7 +86,7 @@ export class Registry<Flowers extends Obj<{ real: typeof Flower, test: typeof Fl
   
   getAwsServices() {
     const services = new Set<Soil.LocalStackAwsService>();
-    for (const [ k, { real } ] of this.flowers as ObjIterator<Flowers>)
+    for (const [ k, { real } ] of this.flowers[walk]())
       for (const awsService of real.getAwsServices())
         services.add(awsService);
     return services[toArr](v => v);
@@ -240,7 +249,7 @@ export class Garden<Reg extends Registry<any>> {
             // Create ddb tf state locking table
             await writePetalTfAndFiles(new PetalTerraform.Resource('awsDynamodbTable', 'tfState', {
               name:        ddbName,
-              billingMode: phrasing('payPerRequest', 'camel', 'snake')[upper](),
+              billingMode: phrasing('camel->snake', 'payPerRequest')[upper](),
               hashKey:     'LockID',
               $attribute:  { name: 'LockID', type: 'S' }
             }));
@@ -274,7 +283,7 @@ export class Garden<Reg extends Registry<any>> {
     
   }
   
-  private terraformInit(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.init', { fact: fact.fsp() }, async logger => {
+  private terraformInit(fact: Fact) { return this.ctx.logger.scope('execTf.init', { fact: fact.fsp() }, async logger => {
     
     // Consider if we ever want to pass "-reconfigure" and "-migrate-state" options; these are
     // useful if we are moving backends (e.g. one aws account to another), and want to move our
@@ -283,11 +292,45 @@ export class Garden<Reg extends Registry<any>> {
     // TODO: Some terraform commands fail when offline - can this be covered up? Possibly by
     // checking terraform binaries into the repo? (Cross-platform nightmare though...)
     
-    const result = await procTerraform(fact, `terraform init -input=false`, {
-      onData: async (mode, data) => logger.log({ $$: 'notice', mode, data }) ?? null
+    const tempFact = rootFact.kid([ ...osTempDiskDir().split(pathSep) ]);
+    const mirrorFact = this.ctx.shedFact.kid([ 'lilacTerraformMirror' ]);
+    await mirrorFact.kid([ 'note.txt' ]).setData(`Root of terraform mirror for @gershy/lilac`);
+    
+    const result = await tryWithHealing({
+      fn: () => logger.scope('attempt', {}, async logger => {
+        
+        const configFact = tempFact.kid([ `${Math.random().toString(36).slice(2)}.terraform.rc` ]);
+        await configFact.setData(String[baseline](`
+          | provider_installation {
+          |   filesystem_mirror {
+          |     path = "${mirrorFact.fsp().replaceAll('\\', '/')}"
+          |   }
+          | }
+        `));
+        
+        try {
+          
+          return procTerraform(fact, `terraform init -input=false`, {
+            env: {
+              TF_LOG: 'DEBUG',
+              TF_CLI_CONFIG_FILE: configFact.fsp()
+            }
+          });
+          
+        } finally {
+          
+          
+          
+        }
+        
+      }),
+      canHeal: err => (err.output ?? '')[has]('Could not retrieve the list of available versions for provider'),
+      heal: () => logger.scope('mirror', {}, () => proc(`terraform providers mirror ${mirrorFact.fsp().replaceAll('\\', '/')}`))
     });
+    
     logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
     return result;
+    
     
   }); }
   private terraformPlan(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.plan', { fact: fact.fsp() }, async logger => {
