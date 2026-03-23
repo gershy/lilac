@@ -1,6 +1,6 @@
 {
   "name": "@gershy/lilac",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
     "lilac",
@@ -22,7 +22,8 @@
     "@gershy/clearing": "^0.0.36"
   },
   "devDependencies": {
-    "@gershy/disk": "^0.0.12",
+    "@gershy/disk": "^0.0.13",
+    "@gershy/entry": "^0.0.6",
     "@gershy/logger": "^0.0.8",
     "@gershy/util-hash": "^0.0.5",
     "@types/node": "^24.10.1",
@@ -32,7 +33,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-api-gateway": "^3.893.0",
-    "@gershy/nodejs-proc": "^0.0.6",
+    "@gershy/nodejs-proc": "^0.0.7",
     "@gershy/util-http": "^0.0.7",
     "@gershy/util-phrasing": "^0.0.5",
     "@gershy/util-try-with-healing": "^0.0.4"

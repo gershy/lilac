@@ -227,7 +227,7 @@ export namespace Soil {
         },
         retryable: err => !!err.retry,
       }).catch(err => err[fire]({ numErrs: err.errs.length, errs: null }));
-      logger.log({ $$: 'localStackActive', services });
+      logger.log({ $$: 'result', services });
       
       const netProc: NetProc = { proto: 'http', addr: 'localhost', port };
       return {

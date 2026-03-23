@@ -1,15 +1,13 @@
 import { assertEqual, cmpAny, testRunner } from '../build/utils.test.ts';
 import { Context, Garden, Flower, Registry, PetalTerraform } from './main.ts';
-import { Fact, rootFact } from '@gershy/disk';
+import { Fact, rootFact, tempFact } from '@gershy/disk';
 import Logger from '@gershy/logger';
+import { getRootLogger } from '@gershy/entry';
 import hash from '@gershy/util-hash';
 import http from '@gershy/util-http';
 import phrasing from '@gershy/util-phrasing';
 import JsZip from 'jszip';
-import { APIGatewayClient, GetRestApisCommand } from '@aws-sdk/client-api-gateway';
 import { Soil } from './soil/soil.ts';
-import os from 'node:os';
-import path from 'node:path';
 
 const allObj:   typeof cl.allObj   = cl.allObj;
 const map:      typeof cl.map      = cl.map;
@@ -58,6 +56,8 @@ const getSubtree = async (ent: Fact, enc: 'bin' | 'str' | 'json') => {
   return { data, kids };
   
 };
+
+const args = eval(`(${ process.argv.find(v => v[0] === '{') ?? '{}' })`);
 
 testRunner([
   
@@ -151,10 +151,12 @@ testRunner([
     
     // Deploy the simplest possible api to localStack, and test if querying it works
     
-    // const logger = new Logger('test', {}, {}, (...args) => {
-    //   console.log(args);
-    // });
-    const logger = Logger.dummy;
+    const { heavy = false } = args;
+    if (!heavy) return void console.log('Skipping test');
+    
+    const logger = getRootLogger({ filter: ctx => true, lineWidth: 200 });
+    // const logger = new Logger('test', {}, {}, (...args) => console.log(args));
+    // const logger = Logger.dummy;
     
     logger.log({ $$: 'launch' });
     
@@ -248,7 +250,7 @@ testRunner([
       MyLilac: { real: TestInfra, test: TestInfraFake }
     });
     
-    const shedFact = rootFact.kid([ ...os.tmpdir().split(path.sep), '@gershy' ]);
+    const shedFact = tempFact.kid([ '@gershy' ]);
     const patioFact = fact.kid([ 'repo', 'patio' ]);
     const gardenFact = fact.kid([ 'repo', 'terraform' ]);
     const context: Context = {

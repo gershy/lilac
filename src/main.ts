@@ -8,15 +8,12 @@
 
 import { PetalTerraform } from './petal/terraform/terraform.ts';
 import type Logger from '@gershy/logger';
-import { rootFact, type Fact } from '@gershy/disk';
+import { tempFact, type Fact } from '@gershy/disk';
 import  '@gershy/clearing';
-import procTerraform from './util/procTerraform.ts';
 import tryWithHealing from '@gershy/util-try-with-healing';
 import phrasing from '@gershy/util-phrasing';
 import { Soil } from './soil/soil.ts';
 import { SuperIterable } from './util/superIterable.ts';
-import { sep as pathSep } from 'node:path';
-import { tmpdir as osTempDiskDir } from 'node:os';
 import proc from '@gershy/nodejs-proc';
 
 const { isCls, skip } = cl;
@@ -105,12 +102,14 @@ export class Garden<Reg extends Registry<any>> {
   
   // Note this class currently is coupled to terraform logic
   
-  private ctx: Context;
-  private reg: Reg;
-  private def: (ctx: Context, flowers: RegistryFlowers<Reg, 'real' | 'test'>) => SuperIterable<Flower>;
+  private ctx:        Context;
+  private reg:        Reg;
+  private def:        (ctx: Context, flowers: RegistryFlowers<Reg, 'real' | 'test'>) => SuperIterable<Flower>;
+  private tfProcArgs: { timeoutMs: number, env: Obj<string> };
+  
   constructor(args: {
     
-    context: Context,
+    context:  Context,
     registry: Reg,
     define:   Garden<Reg>['def']
     
@@ -120,6 +119,15 @@ export class Garden<Reg extends Registry<any>> {
     this.ctx = context;
     this.reg = registry;
     this.def = define;
+    this.tfProcArgs = {
+      timeoutMs: 0,
+      env: {
+        ...process.env,
+        TF_LOG:             'DEBUG',
+        TF_DATA_DIR:        '',
+        TF_CLI_CONFIG_FILE: ''
+      } as Obj<string>
+    };
     
   }
   
@@ -283,67 +291,68 @@ export class Garden<Reg extends Registry<any>> {
     
   }
   
-  private terraformInit(fact: Fact) { return this.ctx.logger.scope('execTf.init', { fact: fact.fsp() }, async logger => {
+  // TODO: Write terraform output to logs??
+  private async terraformInit(fact: Fact) {
     
     // Consider if we ever want to pass "-reconfigure" and "-migrate-state" options; these are
     // useful if we are moving backends (e.g. one aws account to another), and want to move our
     // full iac definition too
     
-    // TODO: Some terraform commands fail when offline - can this be covered up? Possibly by
-    // checking terraform binaries into the repo? (Cross-platform nightmare though...)
-    
-    const tempFact = rootFact.kid([ ...osTempDiskDir().split(pathSep) ]);
+    // Ensure the mirror directory exists in the shed
     const mirrorFact = this.ctx.shedFact.kid([ 'lilacTerraformMirror' ]);
     await mirrorFact.kid([ 'note.txt' ]).setData(`Root of terraform mirror for @gershy/lilac`);
     
-    const result = await tryWithHealing({
-      fn: () => logger.scope('attempt', {}, async logger => {
-        
-        const configFact = tempFact.kid([ `${Math.random().toString(36).slice(2)}.terraform.rc` ]);
-        await configFact.setData(String[baseline](`
-          | provider_installation {
-          |   filesystem_mirror {
-          |     path = "${mirrorFact.fsp().replaceAll('\\', '/')}"
-          |   }
-          | }
-        `));
-        
-        try {
+    return this.ctx.logger.scope('execTf.init', { fact: fact.fsp() }, async logger => {
+      
+      const { output: result } = await tryWithHealing({
+        fn: () => logger.scope('attempt', {}, async logger => {
           
-          return procTerraform(fact, `terraform init -input=false`, {
-            env: {
-              TF_LOG: 'DEBUG',
-              TF_CLI_CONFIG_FILE: configFact.fsp()
-            }
-          });
+          const configFact = tempFact.kid([ `${Math.random().toString(36).slice(2)}.terraform.rc` ]);
+          await configFact.setData(String[baseline](`
+            | provider_installation {
+            |   filesystem_mirror {
+            |     path = "${mirrorFact.fsp().replaceAll('\\', '/')}"
+            |   }
+            | }
+          `));
           
-        } finally {
+          return proc(`terraform init -input=false`, {}[merge](this.tfProcArgs)[merge]({
+            cwd: fact,
+            env: { TF_CLI_CONFIG_FILE: configFact.fsp() }
+          })).finally(() => configFact.rem());
           
+        }),
+        canHeal: err => (err?.output ?? '')[has]('Could not retrieve the list of available versions for provider'),
+        heal: () => logger.scope('mirror', { fsp: mirrorFact.fsp() }, async logger => {
           
+          const { output: result } = await proc(`terraform providers mirror "${mirrorFact.fsp().replaceAll('\\', '/')}"`, { cwd: fact, timeoutMs: 0 });
+          logger.log({ $$: 'result', result });
           
-        }
-        
-      }),
-      canHeal: err => (err.output ?? '')[has]('Could not retrieve the list of available versions for provider'),
-      heal: () => logger.scope('mirror', {}, () => proc(`terraform providers mirror ${mirrorFact.fsp().replaceAll('\\', '/')}`))
+        })
+      });
+      
+      logger.log({ $$: 'result', result });
+      
+      return result;
+    
     });
     
-    logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
-    return result;
-    
-    
-  }); }
+  }
   private terraformPlan(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.plan', { fact: fact.fsp() }, async logger => {
     
-    const result = await procTerraform(fact, `terraform plan -input=false`);
-    logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
+    const { output: result } = await proc(`terraform plan -input=false`, {}[merge](this.tfProcArgs)[merge]({
+      cwd: fact,
+    }))
+    logger.log({ $$: 'result', result });
     return result;
     
   }); }
   private terraformApply(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.apply', { fact: fact.fsp() }, async logger => {
     
-    const result = await procTerraform(fact, `terraform apply -input=false -auto-approve`);
-    logger.log({ $$: 'result', logFp: result.logDb.toString(), msg: result.output });
+    const { output: result } = await proc(`terraform apply -input=false -auto-approve`, {}[merge](this.tfProcArgs)[merge]({
+      cwd: fact
+    }));
+    logger.log({ $$: 'result', result });
     return result;
     
   }); }
