@@ -52,8 +52,11 @@ export namespace Soil {
       this.registry = args.registry;
     }
     
+    public getRegion(): string {
+      throw Error('method definition missing');
+    }
     public async getTerraformPetals(ctx: Context): Promise<PetalProjResult> {
-      throw Error('not implemented');
+      throw Error('method definition missing');
     }
     
   };
@@ -84,6 +87,8 @@ export namespace Soil {
       }[merge](args.localStackDocker ?? {});
       
     }
+    
+    public getRegion() { return this.aws.region; }
     
     private getAwsServices() {
       
@@ -353,6 +358,7 @@ export namespace Soil {
       this.aws = args.aws;
     }
     
+    public getRegion() { return this.aws.region; }
     public async getTerraformPetals(ctx: Context) {
       
       const { aws } = this;

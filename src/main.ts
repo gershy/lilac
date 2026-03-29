@@ -19,6 +19,7 @@ import proc from '@gershy/nodejs-proc';
 const { isCls, skip } = cl;
 const toArr:    typeof cl.toArr    = cl.toArr;
 const allObj:   typeof cl.allObj   = cl.allObj;
+const allArr:   typeof cl.allArr   = cl.allArr;
 const has:      typeof cl.has      = cl.has;
 const map:      typeof cl.map      = cl.map;
 const mod:      typeof cl.mod      = cl.mod;
@@ -61,6 +62,14 @@ export class Flower {
   }
   public getPetals(ctx: Context): SuperIterable<PetalTerraform.Base> {
     throw Error('not implemented');
+  }
+  
+  public async cultivate() {
+    
+    // This function is called once all Flowers for a given Garden have been constructed. The main
+    // purpose of this phase is to allow Flowers which reference each other via functions to run
+    // such functions without running into uninitialized values.
+    
   }
   
 };
@@ -141,37 +150,38 @@ export class Garden<Reg extends Registry<any>> {
     
     const seenFlowers = new Set<Flower>();
     const seenPetals = new Set<PetalTerraform.Base>();
-    for await (const topLevelFlower of await this.def(this.ctx, this.reg.get('real') as RegistryFlowers<Reg, 'real'>)) {
-      
-      for (const flower of topLevelFlower.getDependencies()) {
-        
-        if (seenFlowers.has(flower)) continue;
+    for await (const topLevelFlower of await this.def(this.ctx, this.reg.get('real') as RegistryFlowers<Reg, 'real'>))
+      for (const flower of topLevelFlower.getDependencies())
         seenFlowers.add(flower);
+    
+    // Now we've exhaustively referenced all Flowers - we can cultivate them
+    await Promise.all(seenFlowers[toArr](f => f.cultivate()));
+    
+    for (const flower of seenFlowers) {
+      for await (const petal of await flower.getPetals(this.ctx)) {
         
-        for await (const petal of await flower.getPetals(this.ctx)) {
-          
-          if (seenPetals.has(petal)) continue;
-          yield petal;
-          
-        }
+        if (seenPetals.has(petal)) continue;
+        seenPetals.add(petal);
+        
+        yield petal;
         
       }
-      
     }
     
   }
   
-  public async genTerraform(deployTarget: Soil.Base) {
+  public async genTerraform(soil: Soil.Base) {
     
-    const soilTfPetalsPrm = deployTarget.getTerraformPetals(this.ctx);
+    const soilTfPetalsPrm = soil.getTerraformPetals(this.ctx);
     
     return this.ctx.logger.scope('garden.genTerraform', {}, async logger => {
       
+      type Writable = { write: (data: string | Buffer) => Promise<void>, end: () => Promise<void> };
       type SetupTfProjArgs = {
         term: string,
         logger: Logger,
         fact: Fact,
-        setup: (fact: Fact, mainWritable: { write: (data: string | Buffer) => Promise<void>, end: () => Promise<void> }, writePetalTfAndFiles: <T extends PetalTerraform.Base>(petal: T) => Promise<T>) => Promise<void>
+        setup: (fact: Fact, mainWritable: Writable, writePetalTfAndFiles: <T extends PetalTerraform.Base>(petal: T) => Promise<T>) => Promise<void>
       };
       const setupTfProj = async (args: SetupTfProjArgs) => args.logger.scope('tf', { proj: this.ctx.name, tf: args.term }, async logger => {
         
@@ -200,8 +210,7 @@ export class Garden<Reg extends Registry<any>> {
           await args.setup(args.fact, stream, async petal => {
             
             // Include a utility function the caller can use to easily write petals
-            const { tf, files = {} } = await petal.getResult()
-                .then(tf => isCls(tf, String) ? { tf } : tf);
+            const { tf, files = {} } = await petal.getResult().then(tf => isCls(tf, String) ? { tf } : tf);
             
             if (tf) await stream.write(`${tf}\n`);
             
