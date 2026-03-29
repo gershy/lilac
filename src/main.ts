@@ -404,3 +404,4 @@ export class Garden<Reg extends Registry<any>> {
 };
 
 export * from './petal/terraform/terraform.ts';
+export * from './soil/soil.ts';
