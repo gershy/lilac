@@ -60,8 +60,8 @@ export class Flower {
   public * getDependencies(): Generator<Flower> {
     yield this;
   }
-  public getPetals(ctx: Context): SuperIterable<PetalTerraform.Base> {
-    throw Error('not implemented');
+  public getPetals(ctx: Context & { soil: Soil.Base }): SuperIterable<PetalTerraform.Base> {
+    throw Error('function definition missing');
   }
   
   public async cultivate() {
@@ -140,7 +140,7 @@ export class Garden<Reg extends Registry<any>> {
     
   }
   
-  private async * getPetals() {
+  private async * getPetals(soil: Soil.Base) {
     
     // TODO: We always use the "real" flowers from the registry - this is part of the shift to
     // localStack; we always generate genuine terraform and apply it to the docker localStack.
@@ -158,7 +158,7 @@ export class Garden<Reg extends Registry<any>> {
     await Promise.all(seenFlowers[toArr](f => f.cultivate()));
     
     for (const flower of seenFlowers) {
-      for await (const petal of await flower.getPetals(this.ctx)) {
+      for await (const petal of await flower.getPetals({ ...this.ctx, soil })) {
         
         if (seenPetals.has(petal)) continue;
         seenPetals.add(petal);
@@ -181,7 +181,7 @@ export class Garden<Reg extends Registry<any>> {
         term: string,
         logger: Logger,
         fact: Fact,
-        setup: (fact: Fact, mainWritable: Writable, writePetalTfAndFiles: <T extends PetalTerraform.Base>(petal: T) => Promise<T>) => Promise<void>
+        setup: (fact: Fact, writePetalTfAndFiles: <T extends PetalTerraform.Base>(petal: T) => Promise<T>) => Promise<void>
       };
       const setupTfProj = async (args: SetupTfProjArgs) => args.logger.scope('tf', { proj: this.ctx.name, tf: args.term }, async logger => {
         
@@ -207,7 +207,7 @@ export class Garden<Reg extends Registry<any>> {
         await logger.scope('files.generate', {}, async logger => {
           
           const stream = await args.fact.kid([ 'main.tf' ]).getDataHeadStream();
-          await args.setup(args.fact, stream, async petal => {
+          await args.setup(args.fact, async petal => {
             
             // Include a utility function the caller can use to easily write petals
             const { tf, files = {} } = await petal.getResult().then(tf => isCls(tf, String) ? { tf } : tf);
@@ -241,7 +241,7 @@ export class Garden<Reg extends Registry<any>> {
           term: 'boot',
           logger,
           fact: this.ctx.fact.kid([ 'boot' ]),
-          setup: async (fact, mainWritable, writePetalTfAndFiles) => {
+          setup: async (fact, writePetalTfAndFiles) => {
             
             // Include the soil's infrastructure
             const { boot } = await soilTfPetalsPrm;
@@ -278,13 +278,13 @@ export class Garden<Reg extends Registry<any>> {
           term: 'main',
           logger,
           fact: this.ctx.fact.kid([ 'main' ]),
-          setup: async (fact, mainWritable, writePetalTfAndFiles) => {
+          setup: async (fact, writePetalTfAndFiles) => {
             
             // Include the soil's infrastructure
             const { main } = await soilTfPetalsPrm;
             for await (const petal of await main({ s3Name, ddbName })) await writePetalTfAndFiles(petal);
             
-            for await (const petal of this.getPetals()) await writePetalTfAndFiles(petal);
+            for await (const petal of this.getPetals(soil)) await writePetalTfAndFiles(petal);
             
             // Propagate any terraform lock found in version control
             const patioTfHclFact = this.ctx.patioFact.kid([ 'main', '.terraform.lock.hcl' ]);
