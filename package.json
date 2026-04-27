@@ -1,6 +1,6 @@
 {
   "name": "@gershy/lilac",
-  "version": "0.0.19",
+  "version": "0.0.20",
   "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
     "lilac",
@@ -25,7 +25,7 @@
     "@gershy/disk": "^0.0.13",
     "@gershy/entry": "^0.0.7",
     "@gershy/logger": "^0.0.8",
-    "@gershy/util-hash": "^0.0.10",
+    "@gershy/util-hash": "^0.0.12",
     "@types/node": "^24.10.1",
     "jszip": "^3.10.1",
     "tsx": "^4.21.0",
