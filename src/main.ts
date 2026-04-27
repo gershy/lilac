@@ -29,14 +29,14 @@ const upper:    typeof cl.upper    = cl.upper;
 const baseline: typeof cl.baseline = cl.baseline;
 export type Context = {
   
-  name:       string, // Name of the system/garden
+  name:       string,  // Name of the system/garden
   logger:     Logger,
-  fact:       Fact,
-  patioFact:  Fact,
-  shedFact:   Fact,
-  maturity:   string, // TODO: A Lilac run has a maturity? Or a single Lilac build supports multiple maturities?
+  fact:       Fact,    // Root of the infrastructure directory
+  patioFact:  Fact,    // Fact within version control, for any version-controlled infra files (e.g. .terraform.lock.hcl)
+  shedFact:   Fact,    // Storage directory for arbitrary binaries associated with infra (e.g. terraform providers)
+  maturity:   string,  // TODO: A Lilac run has a maturity? Or a single Lilac build supports multiple maturities?
   debug:      boolean,
-  pfx:        string // Establishes a namespace for all resources provisioned for the particular app
+  pfx:        string   // Establishes a namespace for all resources provisioned for the particular app
   
   // // Throttlers:
   // // - webpack: shell "webpack" commands
@@ -61,9 +61,8 @@ export class Flower {
     yield this;
   }
   public getPetals(ctx: Context & { soil: Soil.Base }): SuperIterable<PetalTerraform.Base> {
-    throw Error('function definition missing');
+    throw Error('logic missing');
   }
-  
   public async cultivate() {
     
     // This function is called once all Flowers for a given Garden have been constructed. The main

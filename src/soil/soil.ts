@@ -53,10 +53,10 @@ export namespace Soil {
     }
     
     public getRegion(): string {
-      throw Error('function definition missing');
+      throw Error('logic missing');
     }
     public async getTerraformPetals(ctx: Context): Promise<PetalProjResult> {
-      throw Error('function definition missing');
+      throw Error('logic missing');
     }
     
   };
