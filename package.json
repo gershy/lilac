@@ -1,6 +1,14 @@
 {
+  "version": "0.0.22",
   "name": "@gershy/lilac",
-  "version": "0.0.21",
+  "repository": {
+    "url": "git+https://github.com/gershy/lilac.git",
+    "type": "git"
+  },
+  "bugs": {
+    "url": "https://github.com/gershy/lilac/issues"
+  },
+  "homepage": "https://github.com/gershy/lilac#readme",
   "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
     "lilac",
@@ -9,14 +17,6 @@
     "infrastructure"
   ],
   "author": "Gershom Maes",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/gershy/lilac.git"
-  },
-  "bugs": {
-    "url": "https://github.com/gershy/lilac/issues"
-  },
-  "homepage": "https://github.com/gershy/lilac#readme",
   "license": "ISC",
   "peerDependencies": {
     "@gershy/clearing": "^0.0.36"
@@ -29,7 +29,8 @@
     "@types/node": "^24.10.1",
     "jszip": "^3.10.1",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "esbuild": "^0.28.0"
   },
   "dependencies": {
     "@aws-sdk/client-api-gateway": "^3.893.0",
@@ -42,22 +43,18 @@
   "files": [
     "cmp"
   ],
-  "sideEffects": false,
-  "types": "./cmp/mjs/main.d.ts",
   "exports": {
     ".": {
-      "import": "./cmp/mjs/main.js",
+      "import": "./cmp/esm/main.js",
       "require": "./cmp/cjs/main.js"
     }
   },
   "scripts": {
     "test": "npm run ts.check && npx tsx ./src/main.test.ts",
     "ts.check": "npx tsc --noEmit",
-    "build.cjs": "tsc -p build/tsconfig.cjs.json",
-    "build.mjs": "tsc -p build/tsconfig.mjs.json",
-    "build": "node ./build/act.js removeCmp && npm run build.cjs && npm run build.mjs && node ./build/act.js finalizeExportVariants",
     "git.pub": "npm run test && git add --all && git commit -m \"automated\" && git push",
     "npm.login": "npm login",
-    "npm.pub": "npm run test && npm run build && npm publish --access public"
+    "npm.pub": "npm run test && npm run build && npm publish --access public",
+    "npm.cmp": "npm run ts.check && node ./build/act.js cmp"
   }
 }

@@ -7,14 +7,14 @@
 // Support test-mode (Flowers need to be able to do setup, share config, write to volumes, etc)
 
 import { PetalTerraform } from './petal/terraform/terraform.ts';
-import type Logger from '@gershy/logger';
 import { tempFact, type Fact } from '@gershy/disk';
 import  '@gershy/clearing';
 import tryWithHealing from '@gershy/util-try-with-healing';
 import phrasing from '@gershy/util-phrasing';
 import { Soil } from './soil/soil.ts';
-import { SuperIterable } from './util/superIterable.ts';
 import proc from '@gershy/nodejs-proc';
+import type Logger from '@gershy/logger';
+import type { SuperIterable } from './util/superIterable.ts';
 
 const { isCls, skip } = cl;
 const toArr:    typeof cl.toArr    = cl.toArr;

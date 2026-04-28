@@ -1,63 +1,135 @@
-import fs from 'node:fs/promises';
+import '@gershy/clearing';
+import fs, { glob } from 'node:fs/promises';
 import path from 'node:path';
+import tsc from 'typescript';
+import esbuild from 'esbuild';
 
 (async () => {
   
-  const dir = path.join(import.meta.dirname, '..');
+  const rootFp = path.join(import.meta.dirname, '..');
   const mode = process.argv.at(-1);
   
   const ops = {
     
-    // Completely remove the "cmp" directory
-    removeCmp: async () => {
+    cmp: async () => { // "compile"
       
-      await fs.rm(path.join(dir, 'cmp'), { recursive: true, force: true });
+      const cmpFp = path.join(rootFp, 'cmp');
+      await fs.rm(cmpFp, { recursive: true, force: true });
+      await fs.mkdir(cmpFp);
+      const { compilerOptions = {} } = JSON.parse(await fs.readFile(path.join(rootFp, 'tsconfig.json')));
       
-    },
-    
-    // Run after compilation - applies changes to each code variant (e.g. cjs, mjs)
-    finalizeExportVariants: async () => {
-      
-      await Promise.all([
+      // Use `tsc` to generate .d.ts files for all source .ts (excluding .d.ts) source files
+      // Generates only a "cjs" directory (which will be copied exactly to "esm")
+      await (async () => {
         
-        // Copy side effect typing into the cmp files
-        fs.cp(
-          path.join(dir, 'src', 'sideEffects.d.ts'),
-          path.join(dir, 'cmp', 'sideEffects.d.ts')
-        ),
+        // This function is marked `async` - although tsc is completely sync :(
         
-        ...[
-          { fd: 'mjs', pkg: { type: 'module' } },
-          { fd: 'cjs', pkg: { type: 'commonjs' } }
-        ].map(async def => {
+        const outputDir = path.join(cmpFp, 'cjs'); // We copy to cjs, then copy the full subtree to esm
+        const target = 'esm';
+        const jsonArgs = {
           
-          // TODO: Note that the .d.ts files for mjs and cjs are duplicated - the tsc compilation
-          // for both uses { "emitDeclaration": true }! How to minimize the amount of stuff in the
-          // npm bundle?? Especially when there are multiple .js/.d.ts file associations??
-          
-          const { fd, pkg } = def;
-          
-          const cmpFp = path.join(dir, 'cmp', fd);
-          const mainTypingFp = path.join(cmpFp, 'main.d.ts');
-          
-          await Promise.all([
+          include: [ 'src/**/main.ts', 'src/**/*.main.ts' ],
+          compilerOptions: {
             
-            // Write a nested package.json
-            fs.writeFile(path.join(cmpFp, 'package.json'), JSON.stringify(pkg)),
+            ...compilerOptions,
+            module:              { cjs: 'CommonJS', esm: 'ESNext' }[target],
+            moduleResolution:    'NodeNext',
+            declaration:         true,
+            emitDeclarationOnly: true,
+            declarationDir:      outputDir,
+            strict:              true,
             
-            // Rewrite main.d.ts so that it imports the side effects
-            (async () => {
+          }
+          
+        };
+        const programArgs = tsc.parseJsonConfigFileContent(jsonArgs, tsc.sys, rootFp)
+        const program = tsc.createProgram({
+          rootNames: programArgs.fileNames,
+          options:   programArgs.options
+        });
+        
+        const result = program.emit();
+        if (result.emitSkipped) throw new Error('tsc declaration failed')[cl.mod]({
+          diagnostics: [ ...tsc.getPreEmitDiagnostics(program), ...result.diagnostics ]
+            .map(({ file, start, messageText }) => ({
               
-              const mainTypingData = await fs.readFile(mainTypingFp, 'utf8');
-              await fs.writeFile(mainTypingFp, `import '../sideEffects.js';\n${mainTypingData}`);
+              msg: tsc.flattenDiagnosticMessageText(messageText, '\n'),
+              ...(file && start && (() => {
+                
+                const { line, character } = file.getLineAndCharacterOfPosition(start);
+                return { fileName, line: line + 1, char: character + 1 };
+                
+              })())
               
-            })(),
-            
-          ]);
-          
-        })
+            }))
+        });
         
-      ]);
+      })();
+      
+      // Copy all .d.ts files in src to cmp (tsc always excludes .d.ts files)
+      await (async () => {
+        
+        const declarationFiles = await glob('**/*.d.ts', { cwd: path.join(rootFp, 'src') });
+        for await (const decFd of declarationFiles) {
+          
+          const srcFp = path.join(rootFp, 'src', decFd);
+          const cmpFp = path.join(rootFp, 'cmp', 'cjs', decFd);
+          
+          await fs.mkdir(path.dirname(cmpFp), { recursive: true });
+          await fs.cp(srcFp, cmpFp);
+          
+        }
+        
+      })();
+      
+      // Now cmp/cjs is fully populated by types, which are used by both cjs and esm
+      await fs.cp(
+        path.join(rootFp, 'cmp', 'cjs'),
+        path.join(rootFp, 'cmp', 'esm'),
+        { recursive: true }
+      );
+      
+      // Transpile typescript to cjs / esm
+      await Promise.all([ 'cjs', 'esm' ].map(async target => {
+        
+        const replaceKey = k => `__esbuild_replace_target_${k.replace(/[^a-zA-Z0-9_$]/g, '_')}`;
+        const replacements = {
+          'import.meta': '({ url: new URL(__filename).href, dirname: __dirname, filename: __filename })'
+        };
+        
+        const result = await esbuild.build({
+          entryPoints: [ 'src/**/main.ts', 'src/**/*.main.ts' ],
+          outbase:     path.join(rootFp, 'src'),
+          outdir:      path.join(rootFp, 'cmp', target),
+          define:      replacements[cl.map]((v, k) => replaceKey(k)),
+          logLevel:    'silent',
+          bundle:      false,
+          minify:      false,
+          sourcemap:   false,
+          platform:    'node',
+          format:      target,
+          metafile:    true
+        }).catch(cause => err[cl.fire]({ msg: cause.message, ...cause[cl.slice]([ 'errors', 'warnings' ])[cl.map](arr => arr.map(v => v[cl.slice]([ 'text', 'location' ]))) }));
+        
+        const replace = replacements[cl.mapk]((v, k) => {
+          return [ replaceKey(k), v ];
+        });
+        const replaceReg = new RegExp(replace[cl.toArr]((v, k) => k).join('|').replaceAll('$', '\\$'), 'g');
+        await Promise.all(result.metafile.outputs[cl.toArr](async (v, cmpFp) => {
+          
+          const fp = path.join(rootFp, cmpFp);
+          const content = await fs.readFile(fp, 'utf8');
+          const replaced = content.replace(replaceReg, term => replace[term]);
+          await fs.writeFile(fp, replaced);
+          
+        }));
+        
+        await fs.writeFile(
+          path.join(cmpFp, target, 'package.json'),
+          JSON.stringify({ type: { cjs: 'commonjs', esm: 'module' }[target] })
+        );
+        
+      }));
       
     }
     
@@ -73,7 +145,6 @@ import path from 'node:path';
     await ops[mode]();
     
   }
-  
   
 })().catch(err => {
   console.log('fatal', err);

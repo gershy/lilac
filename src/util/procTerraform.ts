@@ -1,5 +1,5 @@
 import type { Fact } from '@gershy/disk';
-import proc, { ProcOpts } from '@gershy/nodejs-proc';
+import proc, { type ProcOpts } from '@gershy/nodejs-proc';
 
 export type ProcTerraformArgs = ProcOpts & { config?: string };
 export default (fact: Fact, cmd: string, opts: ProcTerraformArgs = {}) => {

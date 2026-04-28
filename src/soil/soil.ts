@@ -1,13 +1,13 @@
 import proc from '@gershy/nodejs-proc';
-import { Context, PetalTerraform, Registry } from '../main.ts';
+import { type Context, PetalTerraform, Registry } from '../main.ts';
 import retry from '@gershy/util-retry';
-import { RegionTerm } from '../util/aws.ts';
 import '@gershy/clearing';
-import http, { NetProc } from '@gershy/util-http';
+import http, { type NetProc } from '@gershy/util-http';
 import { regions as awsRegions } from '../util/aws.ts';
-import { SuperIterable } from '../util/superIterable.ts';
+import { APIGatewayClient, GetRestApisCommand, type RestApi } from '@aws-sdk/client-api-gateway';
+import type { RegionTerm } from '../util/aws.ts';
+import type { SuperIterable } from '../util/superIterable.ts';
 import type Logger from '@gershy/logger';
-import { APIGatewayClient, GetRestApisCommand, RestApi } from '@aws-sdk/client-api-gateway';
 
 const { skip } = clearing;
 

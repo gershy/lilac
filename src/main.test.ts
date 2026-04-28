@@ -1,7 +1,6 @@
 import { assertEqual, cmpAny, testRunner } from '../build/utils.test.ts';
-import { Context, Garden, Flower, Registry, PetalTerraform } from './main.ts';
+import { type Context, Garden, Flower, Registry, PetalTerraform } from './main.ts';
 import { Fact, rootFact, tempFact } from '@gershy/disk';
-import Logger from '@gershy/logger';
 import { getRootLogger } from '@gershy/entry';
 import hash from '@gershy/util-hash';
 import http from '@gershy/util-http';
