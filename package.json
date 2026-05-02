@@ -1,14 +1,7 @@
 {
-  "version": "0.0.22",
   "name": "@gershy/lilac",
-  "repository": {
-    "url": "git+https://github.com/gershy/lilac.git",
-    "type": "git"
-  },
-  "bugs": {
-    "url": "https://github.com/gershy/lilac/issues"
-  },
-  "homepage": "https://github.com/gershy/lilac#readme",
+  "version": "0.0.23",
+  "author": "Gershom Maes",
   "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
     "lilac",
@@ -16,33 +9,37 @@
     "iac",
     "infrastructure"
   ],
-  "author": "Gershom Maes",
-  "license": "ISC",
-  "peerDependencies": {
-    "@gershy/clearing": "^0.0.36"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gershy/lilac.git"
   },
-  "devDependencies": {
-    "@gershy/disk": "^0.0.13",
-    "@gershy/entry": "^0.0.7",
-    "@gershy/logger": "^0.0.8",
-    "@gershy/util-hash": "^0.0.13",
-    "@types/node": "^24.10.1",
-    "jszip": "^3.10.1",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "esbuild": "^0.28.0"
+  "bugs": {
+    "url": "https://github.com/gershy/lilac/issues"
   },
-  "dependencies": {
-    "@aws-sdk/client-api-gateway": "^3.893.0",
-    "@gershy/nodejs-proc": "^0.0.7",
-    "@gershy/util-http": "^0.0.7",
-    "@gershy/util-phrasing": "^0.0.5",
-    "@gershy/util-try-with-healing": "^0.0.4"
-  },
+  "homepage": "https://github.com/gershy/lilac#readme",
   "type": "module",
   "files": [
     "cmp"
   ],
+  "license": "ISC",
+  "peerDependencies": {
+    "@gershy/clearing": "^0.0.41"
+  },
+  "devDependencies": {
+    "@gershy/disk": "^0.0.14",
+    "@gershy/entry": "^0.0.8",
+    "@gershy/logger": "^0.0.9",
+    "@gershy/util-hash": "^0.0.14",
+    "@types/node": "^24.10.1",
+    "jszip": "^3.10.1"
+  },
+  "dependencies": {
+    "@aws-sdk/client-api-gateway": "^3.893.0",
+    "@gershy/nodejs-proc": "^0.0.8",
+    "@gershy/util-http": "^0.0.8",
+    "@gershy/util-phrasing": "^0.0.6",
+    "@gershy/util-try-with-healing": "^0.0.5"
+  },
   "exports": {
     ".": {
       "import": "./cmp/esm/main.js",
@@ -51,10 +48,6 @@
   },
   "scripts": {
     "test": "npm run ts.check && npx tsx ./src/main.test.ts",
-    "ts.check": "npx tsc --noEmit",
-    "git.pub": "npm run test && git add --all && git commit -m \"automated\" && git push",
-    "npm.login": "npm login",
-    "npm.pub": "npm run test && npm run build && npm publish --access public",
-    "npm.cmp": "npm run ts.check && node ./build/act.js cmp"
+    "ts.check": "npx tsc --noEmit"
   }
 }

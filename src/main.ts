@@ -19,7 +19,6 @@ import type { SuperIterable } from './util/superIterable.ts';
 const { isCls, skip } = cl;
 const toArr:    typeof cl.toArr    = cl.toArr;
 const allObj:   typeof cl.allObj   = cl.allObj;
-const allArr:   typeof cl.allArr   = cl.allArr;
 const has:      typeof cl.has      = cl.has;
 const map:      typeof cl.map      = cl.map;
 const mod:      typeof cl.mod      = cl.mod;
@@ -91,7 +90,7 @@ export class Registry<Flowers extends Obj<{ real: typeof Flower, test: typeof Fl
   
   getAwsServices() {
     const services = new Set<Soil.LocalStackAwsService>();
-    for (const [ k, { real } ] of this.flowers[walk]())
+    for (const [ _, { real } ] of this.flowers[walk]())
       for (const awsService of real.getAwsServices())
         services.add(awsService);
     return services[toArr](v => v);
@@ -175,7 +174,6 @@ export class Garden<Reg extends Registry<any>> {
     
     return this.ctx.logger.scope('garden.genTerraform', {}, async logger => {
       
-      type Writable = { write: (data: string | Buffer) => Promise<void>, end: () => Promise<void> };
       type SetupTfProjArgs = {
         term: string,
         logger: Logger,
@@ -346,7 +344,7 @@ export class Garden<Reg extends Registry<any>> {
     });
     
   }
-  private terraformPlan(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.plan', { fact: fact.fsp() }, async logger => {
+  /*private terraformPlan(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.plan', { fact: fact.fsp() }, async logger => {
     
     const { output: result } = await proc(`terraform plan -input=false`, {}[merge](this.tfProcArgs)[merge]({
       cwd: fact,
@@ -354,7 +352,7 @@ export class Garden<Reg extends Registry<any>> {
     logger.log({ $$: 'result', result });
     return result;
     
-  }); }
+  }); }*/
   private terraformApply(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.apply', { fact: fact.fsp() }, async logger => {
     
     const { output: result } = await proc(`terraform apply -input=false -auto-approve`, {}[merge](this.tfProcArgs)[merge]({

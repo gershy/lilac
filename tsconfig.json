@@ -10,7 +10,9 @@
     "skipLibCheck": true,
     "rewriteRelativeImportExtensions": true,
     "forceConsistentCasingInFileNames": true,
-    "verbatimModuleSyntax": true
+    "noUncheckedSideEffectImports": true,
+    "verbatimModuleSyntax": true,
+    "noUnusedLocals": true
   },
   "include": [ "src/**/*.ts" ]
 }

@@ -22,6 +22,7 @@ const mod:      typeof cl.mod      = cl.mod;
   type Tests = {
     1: Enforce<{ x: 'y' }, { x: 'y' }>,
   };
+  if (0) ((v?: Tests) => void 0)();
   
 })();
 
