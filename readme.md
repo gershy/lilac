@@ -42,3 +42,4 @@ IAC deploys always involve the creation of infrastructure-describing code, which
 
 ## Tech debt
 - LocalStack is unreliable without public network - especially when partitioning lambdas
+- Consider renaming `Registry` -> `SeedBank`
