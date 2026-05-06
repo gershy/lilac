@@ -164,6 +164,12 @@ testRunner([
       
       public static getAwsServices(): Soil.LocalStackAwsService[] { return [ 'lambda', 'apigateway', 'iam' ]; }
       
+      private name: string;
+      constructor(name: string) {
+        super();
+        this.name = name;
+      }
+      
       public async getPetals(ctx: Context) {
         
         const code = String[baseline](`
@@ -171,7 +177,7 @@ testRunner([
           |   return {
           |     statusCode: 200,
           |     headers: { 'content-type': 'application/javascript' },
-          |     body: JSON.stringify({ msg: 'test response' })
+          |     body: JSON.stringify({ msg: 'test response', name: '${this.name}' })
           |   };
           | };
         `);
@@ -247,6 +253,7 @@ testRunner([
     class TestInfraFake extends TestInfra {};
     
     const registry = new Registry({
+      // TODO: HEEERE2 - Just fixed this! Need to build npm and use it in lilacLambda to write test
       MyLilac: { real: TestInfra, test: TestInfraFake }
     });
     
@@ -267,7 +274,7 @@ testRunner([
     const garden = new Garden({
       context,
       registry,
-      define: (ctx, registry) => [ new registry.MyLilac() ]
+      define: (ctx, registry) => [ new registry.MyLilac('testyman') ]
     });
     
     const soil = new Soil.LocalStack({ logger, aws: { region: 'ca-central-1' }, registry });
@@ -294,7 +301,7 @@ testRunner([
       assertEqual(res, {
         reqArgs: cmpAny,
         code: 200,
-        body: { msg: 'test response' }
+        body: { msg: 'test response', name: 'testyman' }
       });
       
     } finally {

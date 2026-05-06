@@ -71,12 +71,15 @@ export class Flower {
   }
   
 };
+export type FlowerCtor = (new (...args: any[]) => Flower) & {
+  getAwsServices: () => Iterable<Soil.LocalStackAwsService>
+};
 
 type RegistryFlowers<R extends Registry<any>, M extends 'real' | 'test'> = R extends Registry<infer Flowers>
   ? { [K in keyof Flowers]: Flowers[K][M] }
   : never;
 
-export class Registry<Flowers extends Obj<{ real: typeof Flower, test: typeof Flower }> = Obj<never>> {
+export class Registry<Flowers extends Obj<{ real: FlowerCtor, test: FlowerCtor }> = Obj<never>> {
   
   // Note that maintaining a duality of classes for each Flower (one for testing, one for remote
   // deploy) is essential to keep test functionality out of deployed code bundles. If a single
