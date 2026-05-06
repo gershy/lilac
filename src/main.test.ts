@@ -155,16 +155,13 @@ testRunner([
     if (!heavy) return void console.log('Skipping test');
     
     const logger = getRootLogger({ filter: ctx => true, lineWidth: 200 });
-    // const logger = new Logger('test', {}, {}, (...args) => console.log(args));
-    // const logger = Logger.dummy;
-    
     logger.log({ $$: 'launch' });
     
     class TestInfra extends Flower {
       
       public static getAwsServices(): Soil.LocalStackAwsService[] { return [ 'lambda', 'apigateway', 'iam' ]; }
       
-      private name: string;
+      protected name: string;
       constructor(name: string) {
         super();
         this.name = name;

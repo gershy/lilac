@@ -133,7 +133,7 @@ export namespace PetalTerraform {
   };
   export class Terraform extends Base {
     
-    private props: { [key: string]: Json };
+    protected props: { [key: string]: Json };
     constructor(props: { [key: string]: Json }) {
       super();
       this.props = props;
@@ -146,9 +146,9 @@ export namespace PetalTerraform {
   };
   export class Resource extends Base {
     
-    private type: string;
-    private handle: string;
-    private props: { [key: string]: Json };
+    protected type: string;
+    protected handle: string;
+    protected props: { [key: string]: Json };
     constructor(type: string, handle: string, props: { [key: string]: Json }) {
       super();
       this.type = type;
@@ -165,8 +165,8 @@ export namespace PetalTerraform {
   };
   export class Provider extends Base {
     
-    private name: string;
-    private props: { [key: string]: Json };
+    protected name: string;
+    protected props: { [key: string]: Json };
     constructor(name: string, props: { [key: string]: Json }) {
       super();
       this.name = name;
@@ -180,9 +180,9 @@ export namespace PetalTerraform {
   };
   export class Data extends Base {
     
-    private type: string;
-    private handle: string;
-    private props: { [key: string]: Json };
+    protected type: string;
+    protected handle: string;
+    protected props: { [key: string]: Json };
     constructor(type: string, handle: string, props: { [key: string]: Json }) {
       super();
       this.type = type;
@@ -203,8 +203,8 @@ export namespace PetalTerraform {
   };
   export class File extends Base {
 
-    private fp: string;
-    private content: string | Buffer;
+    protected fp: string;
+    protected content: string | Buffer;
     constructor(fp: string, content: string | Buffer) {
       super();
       this.fp = fp;

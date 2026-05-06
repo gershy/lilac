@@ -86,7 +86,7 @@ export class Registry<Flowers extends Obj<{ real: FlowerCtor, test: FlowerCtor }
   // class supported both test and prod functionality, these two pieces of functionality would
   // always be bundled together.
   
-  private flowers: Flowers;
+  protected flowers: Flowers;
   constructor(flowers: Flowers) {
     this.flowers = {}[merge](flowers);
   }
@@ -112,10 +112,10 @@ export class Garden<Reg extends Registry<any>> {
   
   // Note this class currently is coupled to terraform logic
   
-  private ctx:        Context;
-  private reg:        Reg;
-  private def:        (ctx: Context, flowers: RegistryFlowers<Reg, 'real' | 'test'>) => SuperIterable<Flower>;
-  private tfProcArgs: { timeoutMs: number, env: Obj<string> };
+  protected ctx:        Context;
+  protected reg:        Reg;
+  protected def:        (ctx: Context, flowers: RegistryFlowers<Reg, 'real' | 'test'>) => SuperIterable<Flower>;
+  protected tfProcArgs: { timeoutMs: number, env: Obj<string> };
   
   constructor(args: {
     
@@ -141,7 +141,7 @@ export class Garden<Reg extends Registry<any>> {
     
   }
   
-  private async * getPetals(soil: Soil.Base) {
+  protected async * getPetals(soil: Soil.Base) {
     
     // TODO: We always use the "real" flowers from the registry - this is part of the shift to
     // localStack; we always generate genuine terraform and apply it to the docker localStack.
@@ -301,7 +301,7 @@ export class Garden<Reg extends Registry<any>> {
   }
   
   // TODO: Write terraform output to logs??
-  private async terraformInit(fact: Fact) {
+  protected async terraformInit(fact: Fact) {
     
     // Consider if we ever want to pass "-reconfigure" and "-migrate-state" options; these are
     // useful if we are moving backends (e.g. one aws account to another), and want to move our
@@ -347,7 +347,7 @@ export class Garden<Reg extends Registry<any>> {
     });
     
   }
-  /*private terraformPlan(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.plan', { fact: fact.fsp() }, async logger => {
+  /*protected terraformPlan(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.plan', { fact: fact.fsp() }, async logger => {
     
     const { output: result } = await proc(`terraform plan -input=false`, {}[merge](this.tfProcArgs)[merge]({
       cwd: fact,
@@ -356,7 +356,7 @@ export class Garden<Reg extends Registry<any>> {
     return result;
     
   }); }*/
-  private terraformApply(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.apply', { fact: fact.fsp() }, async logger => {
+  protected terraformApply(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.apply', { fact: fact.fsp() }, async logger => {
     
     const { output: result } = await proc(`terraform apply -input=false -auto-approve`, {}[merge](this.tfProcArgs)[merge]({
       cwd: fact

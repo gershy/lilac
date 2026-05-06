@@ -71,10 +71,10 @@ export namespace Soil {
   };
   export class LocalStack extends Base {
     
-    private static localStackInternalPort = 4566;
+    protected static localStackInternalPort = 4566;
     
-    private aws: LocalStackArgs['aws'];
-    private localStackDocker: NonNullable<Required<LocalStackArgs['localStackDocker']>>;
+    protected aws: LocalStackArgs['aws'];
+    protected localStackDocker: NonNullable<Required<LocalStackArgs['localStackDocker']>>;
     
     constructor(args: LocalStackArgs) {
       
@@ -90,7 +90,7 @@ export namespace Soil {
     
     public getRegion() { return this.aws.region; }
     
-    private getAwsServices() {
+    protected getAwsServices() {
       
       // Note that "overhead" services are essential for initializing localstack:
       // - s3 + ddb used for terraform state locking
@@ -101,7 +101,7 @@ export namespace Soil {
       
     }
     
-    private async getDockerContainers() {
+    protected async getDockerContainers() {
       
       const { containerName } = this.localStackDocker;
       const dockerPs = await proc(`docker ps -a --filter "name=${containerName}" --format "{{.Names}},{{.State}}"`);
@@ -351,7 +351,7 @@ export namespace Soil {
   };
   export class AwsCloud extends Base {
     
-    private aws: AwsCloudArgs['aws'];
+    protected aws: AwsCloudArgs['aws'];
     
     constructor(args: AwsCloudArgs) {
       super(args);
