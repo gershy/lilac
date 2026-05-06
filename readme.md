@@ -32,7 +32,7 @@ A Lilac Comm represents a dependency between some Lilac Resources. For example, 
 
 Lilac provides an opinion on how to represent systems, but it is unopinionated about how that representation is consumed and physically provisioned in the world. In provisioning a Lilac setup, the setup as a whole is converted into a number of IAC Entities - these IAC Entities are aware of a particular provisioning strategy, e.g. aws cloudformation or terraform. A set of IAC Entities is essentially the output of a Lilac setup; they allow a Lilac representation to become a real, functioning system.
 
-### 4. Lilac Registry
+### 4. Lilac Registry (TODO: rename to seed bank??)
 
 The Lilac Registry exhaustively represents the set of Lilac Resource types available. For example, a particular systems primitive (e.g. Temporal) may not have a corresponding Lilac Resource. In such a case, if Temporal is desired, a new Lilac Resource would have to be written for it, and added to the Registry. The Registry also enables development-time testing - a fully mocked Registry can be substituted to the Lilac setup, and the result will be a true-to-production test environment (e.g. local testing).
 
