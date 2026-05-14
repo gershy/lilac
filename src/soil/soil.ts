@@ -88,6 +88,12 @@ export namespace Soil {
       
     }
     
+    public getDockerArgs() { // TODO: Use this to get the port in lambda test!
+      
+      return {}[merge](this.localStackDocker);
+      
+    }
+    
     public getRegion() { return this.aws.region; }
     
     protected getAwsServices() {

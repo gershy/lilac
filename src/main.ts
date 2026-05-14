@@ -13,7 +13,7 @@ import tryWithHealing from '@gershy/util-try-with-healing';
 import phrasing from '@gershy/util-phrasing';
 import { Soil } from './soil/soil.ts';
 import proc from '@gershy/nodejs-proc';
-import type Logger from '@gershy/logger';
+import Logger from '@gershy/logger';
 import type { SuperIterable } from './util/superIterable.ts';
 
 const { isCls, skip } = cl;
@@ -301,17 +301,19 @@ export class Garden<Reg extends Registry<any>> {
   }
   
   // TODO: Write terraform output to logs??
-  protected async terraformInit(fact: Fact) {
+  protected async terraformInit(args: { logger: Logger, fact: Fact }) {
     
     // Consider if we ever want to pass "-reconfigure" and "-migrate-state" options; these are
     // useful if we are moving backends (e.g. one aws account to another), and want to move our
     // full iac definition too
     
+    const { logger, fact } = args;
+    
     // Ensure the mirror directory exists in the shed
     const mirrorFact = this.ctx.shedFact.kid([ 'lilacTerraformMirror' ]);
     await mirrorFact.kid([ 'note.txt' ]).setData(`Root of terraform mirror for @gershy/lilac`);
     
-    return this.ctx.logger.scope('execTf.init', { fact: fact.fsp() }, async logger => {
+    return logger.scope('execTf.init', { fact: fact.fsp() }, async logger => {
       
       const { output: result } = await tryWithHealing({
         fn: () => logger.scope('attempt', {}, async logger => {
@@ -344,27 +346,72 @@ export class Garden<Reg extends Registry<any>> {
       
       return result;
     
+    }).catch(async err => {
+      
+      const logFact = this.ctx.shedFact.kid([ '.log', `garden-tf-init-${+new Date()}.txt` ]);
+      await logFact.setData([
+        'Error:',
+        err.message,
+        '\nOutput:',
+        err.output ?? '<no output>'
+      ].join('\n')).catch(err => {});
+      
+      throw err;
+      
     });
     
   }
-  /*protected terraformPlan(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.plan', { fact: fact.fsp() }, async logger => {
+  protected terraformPlan(args: { logger: Logger, fact: Fact }) {
+    const { logger, fact } = args;
+    return logger.scope('execTf.plan', { fact: fact.fsp() }, async logger => {
+      
+      const { output: result } = await proc(`terraform plan -input=false`, {}[merge](this.tfProcArgs)[merge]({
+        cwd: fact,
+      }))
+      logger.log({ $$: 'result', result });
+      return result;
+      
+    }).catch(async err => {
+      
+      const logFact = this.ctx.shedFact.kid([ '.log', `garden-tf-plan-${+new Date()}.txt` ]);
+      await logFact.setData([
+        'Error:',
+        err.message,
+        '\nOutput:',
+        err.output ?? '<no output>'
+      ].join('\n')).catch(err => {});
+      
+      throw err;
+      
+    });
+  }
+  protected terraformApply(args: { logger: Logger, fact: Fact }) {
     
-    const { output: result } = await proc(`terraform plan -input=false`, {}[merge](this.tfProcArgs)[merge]({
-      cwd: fact,
-    }))
-    logger.log({ $$: 'result', result });
-    return result;
+    const { logger, fact } = args;
+    return logger.scope('execTf.apply', { fact: fact.fsp() }, async logger => {
+      
+      // TODO: On failure, write log to shedFact?
+      const { output: result } = await proc(`terraform apply -input=false -auto-approve`, {}[merge](this.tfProcArgs)[merge]({
+        cwd: fact
+      }));
+      logger.log({ $$: 'result', result });
+      return result;
+      
+    }).catch(async err => {
+      
+      const logFact = this.ctx.shedFact.kid([ '.log', `garden-tf-apply-${+new Date()}.txt` ]);
+      await logFact.setData([
+        'Error:',
+        err.message,
+        '\nOutput:',
+        err.output ?? '<no output>'
+      ].join('\n')).catch(err => {});
+      
+      throw err;
+      
+    });
     
-  }); }*/
-  protected terraformApply(fact: Fact, args?: {}) { return this.ctx.logger.scope('execTf.apply', { fact: fact.fsp() }, async logger => {
-    
-    const { output: result } = await proc(`terraform apply -input=false -auto-approve`, {}[merge](this.tfProcArgs)[merge]({
-      cwd: fact
-    }));
-    logger.log({ $$: 'result', result });
-    return result;
-    
-  }); }
+  }
   
   public async grow(deploy: { type: 'real', soil: Soil.Base } | { type: 'test' }) {
     
@@ -374,30 +421,36 @@ export class Garden<Reg extends Registry<any>> {
     
     // Init+apply both "boot" and "main", in optimistic fashion
     const isHealableTerraformApply = err => /run[^a-zA-Z0-9]+terraform init/.test(err.output as string ?? '');
-    await tryWithHealing({
+    
+    await this.ctx.logger.scope('grow.tf', { type: deploy.type, soil: cl.getClsName(deploy.soil) }, async logger => {
       
-      fn: () => this.terraformApply(mainFact),
-      canHeal: isHealableTerraformApply,
-      heal: () => tryWithHealing({
+      await tryWithHealing({
         
-        fn: async () => {
-          await this.terraformInit(mainFact);
-          await this.ctx.patioFact.kid([ 'main', '.terraform.lock.hcl' ]).setData(
-            await mainFact.kid([ '.terraform.lock.hcl' ]).getData('str')
-          );
-        },
-        canHeal: err => true,
+        fn: () => this.terraformApply({ logger: Logger.dummy, fact: mainFact }),
+        canHeal: isHealableTerraformApply,
         heal: () => tryWithHealing({
           
-          fn: () => this.terraformApply(bootFact),
-          canHeal: isHealableTerraformApply,
-          heal: () => this.terraformInit(bootFact)
+          fn: async () => {
+            await this.terraformInit({ logger: Logger.dummy, fact: mainFact });
+            await this.ctx.patioFact.kid([ 'main', '.terraform.lock.hcl' ]).setData(
+              await mainFact.kid([ '.terraform.lock.hcl' ]).getData('str')
+            );
+          },
+          canHeal: err => true,
+          heal: () => tryWithHealing({
+            
+            fn: () => this.terraformApply({ logger: Logger.dummy, fact: bootFact }),
+            canHeal: isHealableTerraformApply,
+            heal: () => this.terraformInit({ logger: Logger.dummy, fact: bootFact })
+            
+          })
           
         })
         
-      })
+      });
       
     });
+    
     
   }
   

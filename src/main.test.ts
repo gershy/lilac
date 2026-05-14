@@ -250,7 +250,6 @@ testRunner([
     class TestInfraFake extends TestInfra {};
     
     const registry = new Registry({
-      // TODO: HEEERE2 - Just fixed this! Need to build npm and use it in lilacLambda to write test
       MyLilac: { real: TestInfra, test: TestInfraFake }
     });
     

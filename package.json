@@ -1,6 +1,6 @@
 {
   "name": "@gershy/lilac",
-  "version": "0.0.28",
+  "version": "0.0.29",
   "author": "Gershom Maes",
   "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
