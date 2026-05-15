@@ -294,7 +294,9 @@ export namespace Soil {
             region:                    aws.region,
             skipCredentialsValidation: true,
             skipRequestingAccountId:   true,
-            s3UsePathStyle:            true, // Otherwise requests can go to "bucket.s3.amazonaws.com", outside localStack
+            accessKey:                 'test', // Dummy credentials make it impossible for aws requests to succeed
+            secretKey:                 'test',
+            s3UsePathStyle:            true,   // Otherwise requests can go to "bucket.s3.amazonaws.com", outside localStack
             
             // Note our localStack setup always includes s3 and ddb (required for tf state storage)
             $endpoints: awsServices[toObj](svc => [ svc, localStackUrl ])
@@ -326,9 +328,11 @@ export namespace Soil {
           
           for (const { term } of awsRegions) yield new PetalTerraform.Provider('aws', {
             
-            region: term,
+            region:                    term,
             skipCredentialsValidation: true,
             skipRequestingAccountId:   true,
+            accessKey:                 'test',
+            secretKey:                 'test',
             
             // Omit the alias for the default provider!
             ...(term !== aws.region && { alias: term.split('-').join('_') }),
