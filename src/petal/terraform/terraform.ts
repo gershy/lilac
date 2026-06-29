@@ -53,7 +53,7 @@ export namespace PetalTerraform {
             
             const ks = k[hasHead]('$');
             const kk = ks ? k.slice(1) : k;
-            return [ ks, kk.split('.') ];
+            return [ ks, kk.split('$') ];
             
           })();
           
@@ -158,6 +158,7 @@ export namespace PetalTerraform {
     getType() { return this.type; }
     getHandle() { return this.handle; }
     getProps() { return this.props; }
+    mergeProps(obj: Obj<any>) { this.props[cl.merge](obj); }
     async getResultHeader() {
       return `resource "${ph('camel->snake', this.type)}" "${ph('camel->snake', this.handle)}"`;
     }

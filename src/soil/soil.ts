@@ -43,7 +43,7 @@ export namespace Soil {
     | 'sns' | 'sqs' | 'ssm' | 'stepfunctions' | 'sts' | 'support' | 'swf' | 'transcribe';
   
   export type BaseArgs = { logger: Logger, registry: Registry<any> };
-  export class Base {
+  export abstract class Base {
     
     protected logger: Logger;
     protected registry: Registry<any>;
@@ -52,12 +52,8 @@ export namespace Soil {
       this.registry = args.registry;
     }
     
-    public getRegion(): string {
-      throw Error('logic missing');
-    }
-    public async getTerraformPetals(ctx: Context): Promise<PetalProjResult> {
-      throw Error('logic missing');
-    }
+    public abstract getRegion(): string;
+    public abstract getTerraformPetals(ctx: Context): Promise<PetalProjResult>;
     
   };
   

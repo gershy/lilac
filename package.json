@@ -1,6 +1,6 @@
 {
   "name": "@gershy/lilac",
-  "version": "0.0.31",
+  "version": "0.0.32",
   "author": "Gershom Maes",
   "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
@@ -37,7 +37,7 @@
     "@aws-sdk/client-api-gateway": "^3.893.0",
     "@gershy/nodejs-proc": "^0.0.9",
     "@gershy/util-http": "^0.0.9",
-    "@gershy/util-phrasing": "^0.0.7",
+    "@gershy/util-phrasing": "^0.0.8",
     "@gershy/util-try-with-healing": "^0.0.6"
   },
   "exports": {
