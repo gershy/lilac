@@ -422,6 +422,7 @@ export class Garden<Reg extends Registry<any>> {
     // Init+apply both "boot" and "main", in optimistic fashion
     const isHealableTerraformApply = err => /run[^a-zA-Z0-9]+terraform init/.test(err.output as string ?? '');
     
+    const err = new Error('');
     await this.ctx.logger.scope('grow.tf', { type: deploy.type, soil: cl.getClsName(deploy.soil) }, async logger => {
       
       await tryWithHealing({
@@ -449,8 +450,7 @@ export class Garden<Reg extends Registry<any>> {
         
       });
       
-    });
-    
+    }).catch(cause => err[cl.fire]({ msg: 'grow failed', cause }));
     
   }
   

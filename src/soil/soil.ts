@@ -309,7 +309,7 @@ export namespace Soil {
                 version: `~> 5.0` // Consider parameterizing??
               }
             },
-            '$backend.s3': {
+            $backend$s3: {
               region:        aws.region,
               encrypt:       true,
               bucket:        args.s3Name,
@@ -414,7 +414,7 @@ export namespace Soil {
                 version: `~> 5.0` // Consider parameterizing??
               }
             },
-            '$backend.s3': {
+            $backend$s3: {
               
               sharedCredentialsFiles: [ tfAwsCredsFile.refStr() ],
               profile:                credFileProfile,
