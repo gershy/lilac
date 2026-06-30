@@ -47,8 +47,7 @@ export namespace PetalTerraform {
         
         const entryItems = val[toArr]((v, k) => {
           
-          // "special" indicates whether the first char was "$" - it causes objects to be assigned as
-          // *nested blocks*
+          // Presence of "$" prefix indicates "special" - generates tf *nested blocks*
           const [ special, pcs ] = (() => {
             
             const ks = k[hasHead]('$');
@@ -62,7 +61,7 @@ export namespace PetalTerraform {
           
           // Multi-component keys must pertain to objects
           if (pcs.length > 1 && !isCls(v, Object))
-            throw Error('tf key of this form must correspond to object value')[mod]({ k, v });
+            throw Error('non-object')[mod]({ k, v });
           
           // Resolve to raw string?
           if (special && isCls(v, String))

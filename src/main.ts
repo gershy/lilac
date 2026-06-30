@@ -55,18 +55,43 @@ export class Flower {
   // naming, and add a translation layer from Lilac->LocalStack in Soil.LocalStack?
   public static getAwsServices(): Soil.LocalStackAwsService[] { return []; }
   
-  constructor() {}
+  protected computedPetals: Map<Context['pfx'], Promise<PetalTerraform.Base[]>>;
+  constructor() {
+    this.computedPetals = new Map();
+  }
   public * getDependencies(): Generator<Flower> {
     yield this;
   }
-  public getPetals(ctx: Context & { soil: Soil.Base }): SuperIterable<PetalTerraform.Base> {
+  public getPetals(ctx: Context & { soil: Soil.Base }): Promise<PetalTerraform.Base[]> & { _noOverride: true } { // Extending with `{ _noOverride: true }` is an informal hack to make this a final method
+    
+    if (!this.computedPetals.get(ctx.pfx)) this.computedPetals.set(ctx.pfx, (async () => {
+      
+      const petals: PetalTerraform.Base[] = [];
+      for await (const petal of await this.computePetals(ctx))
+        petals.push(petal);
+      
+      return petals;
+      
+    })());
+    
+    const p = this.computedPetals.get(ctx.pfx)!;
+    return p as any as (typeof p) & { _noOverride: true };
+    
+  }
+  public async computePetals(ctx: Context & { soil: Soil.Base }): Promise<SuperIterable<PetalTerraform.Base>> {
     throw Error('logic missing');
   }
   public async cultivate() {
     
-    // This function is called once all Flowers for a given Garden have been constructed. The main
-    // purpose of this phase is to allow Flowers which reference each other via functions to run
-    // such functions without running into uninitialized values.
+    // This function is called once all Flowers for a given Garden have been constructed, but
+    // before any petals have been generated. This step exists to allow Flowers which reference
+    // each other via functions to run such functions only after all reference targets are certain
+    // to be initialized. E.g. the following compiles without errors, but unexpectedly fails with
+    // `v` being uninitialized:
+    // 
+    //    | const fn = () => v;
+    //    | console.log(fn());
+    //    | const v = 'abc';
     
   }
   
@@ -150,7 +175,6 @@ export class Garden<Reg extends Registry<any>> {
     // conditionally calling `this.registry.get('fake')`...
     
     const seenFlowers = new Set<Flower>();
-    const seenPetals = new Set<PetalTerraform.Base>();
     for await (const topLevelFlower of await this.def(this.ctx, this.reg.get('real') as RegistryFlowers<Reg, 'real'>))
       for (const flower of topLevelFlower.getDependencies())
         seenFlowers.add(flower);
@@ -158,14 +182,13 @@ export class Garden<Reg extends Registry<any>> {
     // Now we've exhaustively referenced all Flowers - we can cultivate them
     await Promise.all(seenFlowers[toArr](f => f.cultivate()));
     
+    // Yield all unique petals of all flowers
+    const seenPetals = new Set<PetalTerraform.Base>();
     for (const flower of seenFlowers) {
       for await (const petal of await flower.getPetals({ ...this.ctx, soil })) {
-        
         if (seenPetals.has(petal)) continue;
         seenPetals.add(petal);
-        
         yield petal;
-        
       }
     }
     

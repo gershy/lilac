@@ -167,7 +167,7 @@ testRunner([
         this.name = name;
       }
       
-      public async getPetals(ctx: Context) {
+      public async computePetals(ctx: Context) {
         
         const code = String[baseline](`
           | module.exports.handler = async (e, ctx, cb) => {
@@ -178,6 +178,7 @@ testRunner([
           |   };
           | };
         `);
+        
         const jsZip = new JsZip();
         jsZip.file(`lambda/code.js`, code, { date: new Date(0) });
         const zip = await jsZip.generateAsync({ type: 'nodebuffer', compression: 'deflate'[upper]() });
