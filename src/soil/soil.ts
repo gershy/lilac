@@ -6,7 +6,6 @@ import http, { type NetProc } from '@gershy/util-http';
 import { regions as awsRegions } from '../util/aws.ts';
 import { APIGatewayClient, GetRestApisCommand, type RestApi } from '@aws-sdk/client-api-gateway';
 import type { RegionTerm } from '../util/aws.ts';
-import type { SuperIterable } from '../util/superIterable.ts';
 import type Logger from '@gershy/logger';
 
 const { skip } = clearing;
@@ -30,7 +29,7 @@ export namespace Soil {
   
   export type PetalProjArgs = { s3Name: string, ddbName: string };
   export type PetalProjResult = {
-    [K in 'boot' | 'main']: (args: PetalProjArgs) => SuperIterable<PetalTerraform.Base>
+    [K in 'boot' | 'main']: (args: PetalProjArgs) => Loopable<PetalTerraform.Base>
   };
   
   export type LocalStackAwsService = never

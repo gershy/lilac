@@ -14,7 +14,6 @@ import phrasing from '@gershy/util-phrasing';
 import { Soil } from './soil/soil.ts';
 import proc from '@gershy/nodejs-proc';
 import Logger from '@gershy/logger';
-import type { SuperIterable } from './util/superIterable.ts';
 
 const { isCls, skip } = cl;
 const toArr:    typeof cl.toArr    = cl.toArr;
@@ -131,7 +130,7 @@ export class Garden<Reg extends Registry<any>> {
   
   protected ctx:        Context;
   protected reg:        Reg;
-  protected def:        (ctx: Context, flowers: RegistryFlowers<Reg, 'real' | 'test'>) => SuperIterable<Flower>;
+  protected def:        (ctx: Context, flowers: RegistryFlowers<Reg, 'real' | 'test'>) => Loopable<Flower>;
   protected tfProcArgs: { timeoutMs: number, env: Obj<string> };
   
   constructor(args: {
