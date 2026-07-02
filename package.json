@@ -1,6 +1,6 @@
 {
   "name": "@gershy/lilac",
-  "version": "0.0.39",
+  "version": "0.0.40",
   "author": "Gershom Maes",
   "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
@@ -23,22 +23,22 @@
   ],
   "license": "ISC",
   "peerDependencies": {
-    "@gershy/clearing": "^0.0.43"
+    "@gershy/clearing": "^0.0.44"
   },
   "devDependencies": {
-    "@gershy/disk": "^0.0.16",
-    "@gershy/entry": "^0.0.12",
-    "@gershy/logger": "^0.0.11",
-    "@gershy/util-hash": "^0.0.16",
+    "@gershy/disk": "^0.0.17",
+    "@gershy/entry": "^0.0.13",
+    "@gershy/logger": "^0.0.12",
+    "@gershy/util-hash": "^0.0.17",
     "@types/node": "^24.10.1",
     "jszip": "^3.10.1"
   },
   "dependencies": {
     "@aws-sdk/client-api-gateway": "^3.893.0",
-    "@gershy/nodejs-proc": "^0.0.10",
-    "@gershy/util-http": "^0.0.10",
-    "@gershy/util-phrasing": "^0.0.9",
-    "@gershy/util-try-with-healing": "^0.0.7"
+    "@gershy/nodejs-proc": "^0.0.11",
+    "@gershy/util-http": "^0.0.11",
+    "@gershy/util-phrasing": "^0.0.10",
+    "@gershy/util-try-with-healing": "^0.0.8"
   },
   "exports": {
     ".": {
