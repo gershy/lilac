@@ -106,14 +106,13 @@ type RegistryFlowers<R extends Registry<any>, M extends 'real' | 'test'> = R ext
 
 export class Registry<Flowers extends Obj<{ real: FlowerCtor, test: FlowerCtor }> = Obj<never>> {
   
-  // Note that maintaining a duality of classes for each Flower (one for testing, one for remote
-  // deploy) is essential to keep test functionality out of deployed code bundles. If a single
-  // class supported both test and prod functionality, these two pieces of functionality would
-  // always be bundled together.
+  // Note maintaining a duality of classes for each Flower (one for testing, one for remote deploy)
+  // keeps test functionality out of deployed code bundles. If a single class supported both test
+  // and prod functionality they would be bundled together, inflating prod
   
   protected flowers: Flowers;
   constructor(flowers: Flowers) {
-    this.flowers = {}[merge](flowers);
+    this.flowers = {}[merge](flowers) as Flowers; // TODO: I think the typing looseness here is that `merge` uses `DeepMerge`, which doesn't handle generic indexes well; `Flowers` uses a generic index
   }
   
   getAwsServices() {

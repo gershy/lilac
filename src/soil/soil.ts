@@ -80,7 +80,7 @@ export namespace Soil {
         image: 'localstack/localstack:latest',
         port: LocalStack.localStackInternalPort,
         containerName: 'gershyLilacLocalStack'
-      }[merge](args.localStackDocker ?? {});
+      }[merge](args.localStackDocker ?? {}); // TODO: `merge` with the optional properties 
       
     }
     
