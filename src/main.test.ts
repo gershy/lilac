@@ -154,7 +154,7 @@ testRunner([
     const { heavy = false } = args;
     if (!heavy) return void console.log('Skipping test');
     
-    const logger = getRootLogger({ filter: ctx => true, lineWidth: 200 });
+    const logger = getRootLogger({ filter: ctx => true, maxLineLen: 200 });
     logger.log({ $$: 'launch' });
     
     class TestInfra extends Flower {

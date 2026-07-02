@@ -1,6 +1,6 @@
 {
   "name": "@gershy/lilac",
-  "version": "0.0.35",
+  "version": "0.0.36",
   "author": "Gershom Maes",
   "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
@@ -27,7 +27,7 @@
   },
   "devDependencies": {
     "@gershy/disk": "^0.0.15",
-    "@gershy/entry": "^0.0.10",
+    "@gershy/entry": "^0.0.11",
     "@gershy/logger": "^0.0.10",
     "@gershy/util-hash": "^0.0.15",
     "@types/node": "^24.10.1",
