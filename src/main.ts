@@ -64,13 +64,13 @@ export class Flower {
   public getPetals(ctx: Context & { soil: Soil.Base }): Promise<PetalTerraform.Base[]> & { _noOverride: true } { // Extending with `{ _noOverride: true }` is an informal hack to make this a final method
     
     if (!this.computedPetals.get(ctx.pfx))
-      this.computedPetals.set(ctx.pfx, this.computePetals(ctx)[cl.toArr](v => v));
+      this.computedPetals.set(ctx.pfx, Promise.resolve(this.computePetals(ctx)[cl.toArr](v => v)));
     
     const p = this.computedPetals.get(ctx.pfx)!;
     return p as (typeof p) & { _noOverride: true };
     
   }
-  public computePetals(ctx: Context & { soil: Soil.Base }): Promise<Loopable<PetalTerraform.Base>> {
+  public computePetals(ctx: Context & { soil: Soil.Base }): Loopable<PetalTerraform.Base> {
     throw Error('logic missing');
   }
   public async cultivate() {
