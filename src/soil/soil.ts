@@ -74,12 +74,14 @@ export namespace Soil {
     constructor(args: LocalStackArgs) {
       
       super({ ...args, logger: args.logger.kid('localStack') });
+      
       this.aws = args.aws;
       this.localStackDocker = {
         image: 'localstack/localstack:latest',
         port: LocalStack.localStackInternalPort,
-        containerName: 'gershyLilacLocalStack'
-      }[merge](args.localStackDocker ?? {}); // TODO: `merge` with the optional properties 
+        containerName: 'gershyLilacLocalStack',
+        ...args.localStackDocker
+      };
       
     }
     
