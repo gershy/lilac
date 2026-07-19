@@ -66,5 +66,5 @@ export const regions = ([
   };
 });
 
-export type RegionTerm = (typeof regions)[number]['term'];
-export type RegionMini = (typeof regions)[number]['mini'];
+export type AwsRegionTerm = (typeof regions)[number]['term'];
+export type AwsRegionMini = (typeof regions)[number]['mini'];

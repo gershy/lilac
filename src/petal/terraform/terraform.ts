@@ -36,6 +36,9 @@ export namespace PetalTerraform {
       
       if (isCls(val, Object)) {
         
+        // Handle special objects first...
+        if (val[cl.has]('$$json')) return `jsonencode(${this.terraformEncode(val.$$json)})`;
+        
         // Strings use "| " to avoid any quoting (enabling complex/arbitrary tf)
         // Objects use "$" as a key-prefix to define "nested blocks" instead of "inline maps"
         
@@ -80,7 +83,16 @@ export namespace PetalTerraform {
         const len = entryItems.length;
         if (len === 0) return '{}';
         
-        const entries = entryItems[map](([ key, joiner, value ]) => [ key, joiner, value ].join(''));
+        const entries = entryItems[map](([ key, joiner, value ]) => {
+          
+          // Note this regex allows *space* to appear after the first character - this supports
+          // special blocks like "backend s3" which include a space and must *not* be quoted.
+          // Really this is a bit hacky - the better fix would be to track whether we're currently
+          // handling a block or a map (block keys/names should never be quoted)
+          if (!/^[a-zA-Z_][a-zA-Z0-9 _-]*$/.test(key)) key = `"${slashEscape(key, '"')}"`;
+          return [ key, joiner, value ].join('');
+          
+        });
         
         // Note single-line terraform definitions are illegal for non-linear values
         // Determine whether the the value is linear based on its terminating character (janky)
@@ -217,6 +229,37 @@ export namespace PetalTerraform {
     }
     refStr(props?: string | string[]) {
       return this.fp; // `this.fp` should be quoted but not transformed to a tf handle
+    }
+    
+  };
+  
+  export class Output<V> extends Base {
+    
+    protected handle: string;
+    protected tfValue: Json;
+    protected fn: (tfStateValue: Json) => Promise<V>;
+    constructor(handle: string, tfValue: Json, fn: (tfStateValue: Json) => Promise<V>) {
+      super();
+      this.fn = fn;
+      this.handle = handle;
+      this.tfValue = tfValue;
+    }
+    
+    async getResultHeader() {
+      return `output "${ph('camel->snake', this.handle)}"`;
+    }
+    getHandle() { return this.handle; }
+    getProps(): { [key: string]: Json } {
+      return {
+        value: this.tfValue,
+        description: '<no desc>',
+        sensitive: false
+      };
+    }
+    
+    public getOutput(tfOutputJson): Promise<V> {
+      const extracted = tfOutputJson[this.handle].value; // Note `tfOutputJson` has already had object keys converted to camelCase!
+      return this.fn(extracted);
     }
     
   };

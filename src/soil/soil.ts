@@ -1,16 +1,15 @@
 import proc from '@gershy/nodejs-proc';
-import { type Context, PetalTerraform, Registry } from '../main.ts';
+import { type Context, PetalTerraform, SeedBank } from '../main.ts';
 import retry from '@gershy/util-retry';
 import '@gershy/clearing';
-import http, { type NetProc } from '@gershy/util-http';
+import http from '@gershy/util-http';
 import { regions as awsRegions } from '../util/aws.ts';
 import { APIGatewayClient, GetRestApisCommand, type RestApi } from '@aws-sdk/client-api-gateway';
-import type { RegionTerm } from '../util/aws.ts';
+import type { AwsRegionTerm } from '../util/aws.ts';
 import type Logger from '@gershy/logger';
 
 const { skip } = clearing;
 
-const merge:    typeof cl.merge    = cl.merge;
 const map:      typeof cl.map      = cl.map;
 const cut:      typeof cl.cut      = cl.cut;
 const fire:     typeof cl.fire     = cl.fire;
@@ -35,29 +34,37 @@ export namespace Soil {
   export type LocalStackAwsService = never
     // These types are recognized by localStack
     // May need to add (or removes) services as localStack evolves
-    | 'acm' | 'apigateway' | 'cloudformation' | 'cloudwatch' | 'config' | 'dynamodb'
+    | 'acm' | 'apigateway' | 'apigatewayv2' | 'cloudformation' | 'cloudwatch' | 'config' | 'dynamodb'
     | 'dynamodbstreams' | 'ec2' | 'es' | 'events' | 'firehose' | 'iam' | 'kinesis' | 'kms'
     | 'lambda' | 'logs' | 'opensearch' | 'redshift' | 'resource' | 'resourcegroupstaggingapi'
     | 'route53' | 'route53resolver' | 's3' | 's3control' | 'scheduler' | 'secretsmanager' | 'ses'
     | 'sns' | 'sqs' | 'ssm' | 'stepfunctions' | 'sts' | 'support' | 'swf' | 'transcribe';
   
-  export type BaseArgs = { logger: Logger, registry: Registry<any> };
+  export type BaseArgs = { logger: Logger, seedBank: SeedBank<any> };
+  export type AwsClientConfig = {
+    region: string,
+    endpoint?: string,
+    credentials?: { accessKeyId: string, secretAccessKey: string }
+  };
+  
   export abstract class Base {
     
     protected logger: Logger;
-    protected registry: Registry<any>;
+    protected seedBank: SeedBank<any>;
     constructor(args: BaseArgs) {
       this.logger = args.logger;
-      this.registry = args.registry;
+      this.seedBank = args.seedBank;
     }
     
-    public abstract getRegion(): string;
+    public abstract getAwsClientConfig(): AwsClientConfig;
     public abstract getTerraformPetals(ctx: Context): Promise<PetalProjResult>;
+    
+    public getRegion(): AwsRegionTerm & { _noOverride: true } { return this.getAwsClientConfig().region as any; }
     
   };
   
   export type LocalStackArgs = BaseArgs & {
-    aws: { region: RegionTerm }, // TODO: What region is this? The default region? Does localStack support resources in multiple?
+    aws: { region: AwsRegionTerm }, // TODO: What region is this? The default region? Does localStack support resources in multiple?
     localStackDocker?: {
       image?: `localstack/localstack${':' | ':latest' | '@'}${string}`, // E.g. 'localstack/localstack:latest'
       containerName?: string,
@@ -85,13 +92,17 @@ export namespace Soil {
       
     }
     
-    public getDockerArgs() { // TODO: Use this to get the port in lambda test!
-      
-      return {}[merge](this.localStackDocker);
-      
+    public getAwsClientConfig() {
+      const netProc = this.getLocalStackNetProc();
+      return {
+        region: this.aws.region,
+        endpoint: `${netProc.proto}://${netProc.addr}:${netProc.port}`
+      };
     }
-    
-    public getRegion() { return this.aws.region; }
+    public getLocalStackNetProc() {
+      const { port } = this.localStackDocker;
+      return { proto: 'http', addr: 'localhost', port };
+    }
     
     protected getAwsServices() {
       
@@ -100,7 +111,7 @@ export namespace Soil {
       // - sts is used for credential validation
       // - iam is needed for role creation
       const overheadAwsServices: LocalStackAwsService[] = [ 's3', 'dynamodb', 'sts', 'iam' ];
-      return new Set([ ...overheadAwsServices, ...this.registry.getAwsServices() ]);
+      return new Set([ ...overheadAwsServices, ...this.seedBank.getAwsServices() ]);
       
     }
     
@@ -237,12 +248,11 @@ export namespace Soil {
       }).catch(err => err[fire]({ numErrs: err.errs.length, errs: null }));
       logger.log({ $$: 'result', services });
       
-      const netProc: NetProc = { proto: 'http', addr: 'localhost', port };
       return {
         aws: { services: [ ...awsServices ], region: this.aws.region },
-        netProc,
+        netProc: this.getLocalStackNetProc(),
         getApis: async () => {
-          const client = new APIGatewayClient({ region: this.aws.region, endpoint: `${netProc.proto}://${netProc.addr}:${netProc.port}` });
+          const client = new APIGatewayClient(this.getAwsClientConfig());
           const apiRes = await client.send(new GetRestApisCommand({}));
           const apis = (apiRes.items ?? []) as (RestApi & { id: string, name: string })[];
           return apis[toObj](api => [ api.name, api ]);
@@ -314,7 +324,7 @@ export namespace Soil {
               region:        aws.region,
               encrypt:       true,
               bucket:        args.s3Name,
-              key:           `tf`,
+              key:           'tf',
               dynamodbTable: args.ddbName,
               usePathStyle:  true,
               
@@ -349,11 +359,8 @@ export namespace Soil {
   
   export type AwsCloudArgs = BaseArgs & {
     aws: {
-      region: RegionTerm,
-      accessKey: {
-        id: string,
-        '!secret': string
-      }
+      region: AwsRegionTerm,
+      auth: { id: string, '!secret': string }
     }
   };
   export class AwsCloud extends Base {
@@ -365,7 +372,15 @@ export namespace Soil {
       this.aws = args.aws;
     }
     
-    public getRegion() { return this.aws.region; }
+    public getAwsClientConfig() {
+      return {
+        region: this.aws.region,
+        credentials: {
+          accessKeyId: this.aws.auth.id,
+          secretAccessKey: this.aws.auth['!secret']
+        }
+      };
+    }
     public async getTerraformPetals(ctx: Context) {
       
       const { aws } = this;
@@ -376,8 +391,8 @@ export namespace Soil {
           const tfAwsCredsFile = new PetalTerraform.File('creds.ini', String[baseline](`
             | [default]
             | aws_region            = ${aws.region}
-            | aws_access_key_id     = ${aws.accessKey.id}
-            | aws_secret_access_key = ${aws.accessKey['!secret']}
+            | aws_access_key_id     = ${aws.auth.id}
+            | aws_secret_access_key = ${aws.auth['!secret']}
           `));
           yield tfAwsCredsFile;
           yield new PetalTerraform.Terraform({
@@ -403,8 +418,8 @@ export namespace Soil {
           const tfAwsCredsFile = new PetalTerraform.File('creds.ini', String[baseline](`
             | [${credFileProfile}]
             | aws_region            = ${aws.region}
-            | aws_access_key_id     = ${aws.accessKey.id}
-            | aws_secret_access_key = ${aws.accessKey['!secret']}
+            | aws_access_key_id     = ${aws.auth.id}
+            | aws_secret_access_key = ${aws.auth['!secret']}
           `));
           yield tfAwsCredsFile;
           
@@ -422,7 +437,7 @@ export namespace Soil {
               region:                 aws.region,
               encrypt:                true,
               bucket:                args.s3Name,
-              key:                   `tf`,
+              key:                   'tf',
               dynamodbTable:         args.ddbName
               
             }

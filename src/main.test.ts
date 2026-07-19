@@ -1,5 +1,5 @@
 import { assertEqual, cmpAny, testRunner } from '../build/utils.test.ts';
-import { type Context, Garden, Flower, Registry, PetalTerraform } from './main.ts';
+import { type Context, Garden, Flower, SeedBank, PetalTerraform } from './main.ts';
 import { Fact, rootFact, tempFact } from '@gershy/disk';
 import { getRootLogger } from '@gershy/entry';
 import hash from '@gershy/util-hash';
@@ -31,7 +31,7 @@ const isolated = async (fn: (fact: Fact) => Promise<void>) => {
   let fact: null | Fact = null;
   try {
     
-    fact = await rootFact.kid([ import.meta.dirname, '.isolatedTest' ], { newTx: true });
+    fact = await rootFact.kid([ import.meta.dirname, '.isolated' ], { newTx: true });
     await fn(fact);
     
   } finally {
@@ -151,8 +151,7 @@ testRunner([
     
     // Deploy the simplest possible api to localStack, and test if querying it works
     
-    const { heavy = false } = args;
-    if (!heavy) return void console.log('Skipping test');
+    if (!args.heavy) return void console.log('Skipping test');
     
     const logger = getRootLogger({ filter: ctx => true, maxLineLen: 200 });
     logger.log({ $$: 'launch' });
@@ -161,13 +160,16 @@ testRunner([
       
       public static getAwsServices(): Soil.LocalStackAwsService[] { return [ 'lambda', 'apigateway', 'iam' ]; }
       
+      protected context: Context;
       protected name: string;
-      constructor(name: string) {
+      constructor(args: { context?: Context, name: string }) {
         super();
-        this.name = name;
+        if (!args.context) throw Error('context missing');
+        this.context = args.context;
+        this.name = args.name;
       }
       
-      public async computePetals(ctx: Context) {
+      public async computePetals() {
         
         const code = String[baseline](`
           | module.exports.handler = async (e, ctx, cb) => {
@@ -184,7 +186,7 @@ testRunner([
         const zip = await jsZip.generateAsync({ type: 'nodebuffer', compression: 'deflate'[upper]() });
         const lambdaBundle = new PetalTerraform.File('literal/testLambda.js.zip', zip);
         const lambdaRole = new PetalTerraform.Resource('awsIamRole', 'testLambdaRole', {
-          name: `${ctx.pfx}-test-lambda-role`,
+          name: `${this.context.pfx}-test-lambda-role`,
           assumeRolePolicy: JSON.stringify({
             Version: '2012-10-17',
             Statement: [{
@@ -195,7 +197,7 @@ testRunner([
           })
         });
         const lambda = new PetalTerraform.Resource('awsLambdaFunction', 'testLambda', {
-          functionName: `${ctx.pfx}-test-lambda`,
+          functionName: `${this.context.pfx}-test-lambda`,
           role: lambdaRole.ref('arn'),
           runtime: 'nodejs22.x',
           handler: 'lambda/code.handler',
@@ -204,7 +206,7 @@ testRunner([
         });
         
         const api = new PetalTerraform.Resource('awsApiGatewayRestApi', 'testApi', {
-          name: `${ctx.pfx}-test-api`
+          name: `${this.context.pfx}-test-api`
         });
         const apiResource = new PetalTerraform.Resource('awsApiGatewayResource', 'testResource', {
           restApiId: api.ref('id'),
@@ -250,31 +252,29 @@ testRunner([
     };
     class TestInfraFake extends TestInfra {};
     
-    const registry = new Registry({
+    const seedBank = new SeedBank({
       MyLilac: { real: TestInfra, test: TestInfraFake }
     });
     
-    const shedFact = tempFact.kid([ '@gershy' ]);
-    const patioFact = fact.kid([ 'repo', 'patio' ]);
-    const gardenFact = fact.kid([ 'repo', 'terraform' ]);
     const context: Context = {
-      name: 'hi',
-      fact: gardenFact,
-      patioFact,
-      shedFact,
-      logger: logger.kid('garden'),
-      maturity: 'm0',
-      debug: false,
-      pfx: 'tezzzt',
+      progressiveServiceMap: {},
+      name:      'hi',
+      fact:      fact.kid([ 'repo', 'terraform' ]),  // Simulate a .gitignored repo directory
+      patioFact: fact.kid([ 'repo', 'patio' ]), // Simulate a repo directory included in version control
+      shedFact:  tempFact.kid([ '@gershy' ]),    // Speed up terraform by referencing a cache dir for all test-scoped terraform work
+      logger:    logger.kid('garden'),
+      maturity:  'm0',
+      debug:     false,
+      pfx:       'tezzzt'
     };
     
     const garden = new Garden({
       context,
-      registry,
-      define: (ctx, registry) => [ new registry.MyLilac('testyman') ]
+      seedBank: seedBank,
+      define: (ctx, seedBank) => [ new seedBank.MyLilac({ name: 'testyman' }) ]
     });
     
-    const soil = new Soil.LocalStack({ logger, aws: { region: 'ca-central-1' }, registry });
+    const soil = new Soil.LocalStack({ logger, aws: { region: 'ca-central-1' }, seedBank: seedBank });
     const localStack = await soil.run();
     
     try {
