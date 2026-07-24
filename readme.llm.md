@@ -1,0 +1,2 @@
+When writing a new Flower keep the following in mind:
+1. Will it be automatically tagged (by default_tags set on the provider)? Flowers are expected to do a solid job assigning tags to all their encompassed aws resources, and are *required* to fully tag resources that can generate costs.

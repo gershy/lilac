@@ -34,7 +34,7 @@ export type HttpApi = {
   method: 'head' | 'get' | 'post' | 'patch' | 'put' | 'delete'
 };
 
-// Consider: switch to a map of absolute service identifiers? `${AccountId}/cfDistro/global/${Pfx}-${string}` | `${AccountId}/apiGw/${AwsRegion}/${Pfx}-${string}`
+// Consider: switch to a map of absolute service identifiers? `${AccountId}/cfDistro/global/${Pfx}-${string}` | `${AccountId}/apiGw/${AwsRegion}/${'http' | 'sokt'}/${Pfx}-${string}`
 export type Service = never
   | { type: 'domain',   httpApi: HttpApi }
   | { type: 'apiGw',    regionTerm: string, httpApi: HttpApi }
@@ -209,6 +209,13 @@ export class Garden<SB extends SeedBank<any>> {
     // Now we've exhaustively referenced all Flowers - we can cultivate them
     
     const flowers = seenFlowers[toArr](v => v);
+    
+    // Example service map:
+    //    | {
+    //    |   'domain/my-domain.com': { addr: 'domain/my-domain.com' },
+    //    |   'apiGw/ca-central-1/http/pfx-coolGateway': { addr: 'apiidzzz.execute-api.ca-central-1.amazonaws.com', port: 443, http: { path: [ 'stage0' ] } }
+    //    |   'cfDistro/pfx-coolCdn': { addr: resolved('cloudfront_distribution.my_cf_distro.domain_name'),    port: 443, http: { path: [] } }
+    //    | }
     const serviceMap = flowers.reduce((m, v) => Object.assign(m, v.getServiceMapTf()), {} as ServiceMap);
     await Promise.all(flowers[map](f => f.cultivate(serviceMap)));
     
@@ -504,19 +511,61 @@ export class Garden<SB extends SeedBank<any>> {
     
   }
   
-  protected async logicalTfPlan_DELETEME(args: { logger: Logger, fact: Fact }) {
-    
-    return this.logicalTf({ ...args, term: 'plan', cmd: 'terraform plan -input=false', opts: {} });
-    
-  }
-  
   protected async logicalTfApply(args: { logger: Logger, fact: Fact }) {
     
     // TODO: logicalization - `apply` can misleadingly fail under several circumstances:
     // - Variable number of dynamic references, e.g. create unknown # of DNS records and map them
     //   all as redundant targets - terraform cannot handle this in a single pass; need *retry*!s
     
-    return this.logicalTf({ ...args, term: 'apply', cmd: 'terraform apply -input=false -auto-approve', opts: {} });
+    return this.logicalTf({ ...args, term: 'apply', cmd: 'terraform apply -input=false -auto-approve', opts: {}, wrap: async (logger, call) => {
+      
+      // We need loop-with-healing; using neither @gershy/retry nor @gershy/try-with-healing
+      
+      while (true) {
+        
+        try {
+          
+          return await logger.scope('attempt', {}, async logger => call(logger, {}));
+          
+        } catch (err: any) {
+          
+          // A bunch of ad-hoc methods can be used to recover from apply failures!
+          // 1. Previous deployments may have left orphaned log groups (due to how lambda logging
+          //    interacts with `terraform destroy`) - we can adopt these log groups into our new
+          //    deployment! The log group ids will collide on `context.pfx`, so we can be confident
+          //    we deserve ownership of them.
+          // 2. TODO - I'm sure there will be more...
+          
+          const getAdoptableLogGroups = (output: string): { terraformHandle: string, awsLogGroupId: string }[] => {
+            
+            // Find "log group already exists" errors in the terraform output
+            
+            const reg = /Error: creating CloudWatch Logs Log Group [(]([^)]*)[)]: [^\n]* The specified log group already exists[\n]with ([a-zA-Z_.]+)[\n,]/;
+            const matches: string[] = output.match(new RegExp(reg.source, 'g')) ?? [];
+            return matches.map(str => {
+              const [ , awsLogGroupId, terraformHandle ] = output.match(new RegExp(reg.source, ''))!;
+              return { awsLogGroupId, terraformHandle };
+            });
+            
+          };
+          const logGroups = cl.isCls(err.output, String) ? getAdoptableLogGroups(err.output) : [];
+          if (!logGroups.length) throw err;
+          
+          logger.log({ $$: 'adoptLogGroups', logGroups });
+          for (const { terraformHandle, awsLogGroupId } of logGroups)
+            await this.logicalTf({
+              logger: Logger.dummy,
+              fact: args.fact,
+              term: 'import',
+              cmd: `terraform import ${terraformHandle} ${awsLogGroupId}`,
+              opts: {}
+            });
+          
+        }
+        
+      }
+      
+    }});
     
   }
   

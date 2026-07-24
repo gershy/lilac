@@ -59,6 +59,7 @@ export namespace Soil {
     public abstract getAwsClientConfig(): AwsClientConfig;
     public abstract getTerraformPetals(ctx: Context): Promise<PetalProjResult>;
     
+    // Note the Soil's region is the *default* region - Flowers can vary by region within a Soil!
     public getRegion(): AwsRegionTerm & { _noOverride: true } { return this.getAwsClientConfig().region as any; }
     
   };
@@ -244,7 +245,8 @@ export namespace Soil {
           return { res, services: ya };
           
         },
-        retryable: err => !!err.retry,
+        retryable: err => !!err.retry
+        
       }).catch(err => err[fire]({ numErrs: err.errs.length, errs: null }));
       logger.log({ $$: 'result', services });
       
@@ -450,6 +452,13 @@ export namespace Soil {
             
             // Omit the alias for the default provider!
             ...(term !== aws.region && { alias: term.split('-').join('_') }),
+            
+            $defaultTags: {
+              tags: {
+                lilacName: ctx.name,
+                lilacPrefix: ctx.pfx
+              }
+            }
             
           });
           

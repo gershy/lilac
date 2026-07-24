@@ -19,7 +19,7 @@ export namespace PetalTerraform {
     
     // Defines petals using terraform; subclasses generally map to terraform's different block types
     
-    static terraformEncode = (val: Json): string => {
+    static terraformEncode = (val: Json, opts: any = {}): string => {
       
       if (val === null)        return 'null';
       if (isCls(val, String))  return val[hasHead]('| ') ? val.slice('| '.length) : `"${slashEscape(val, '"\n')}"`;
@@ -27,8 +27,7 @@ export namespace PetalTerraform {
       if (isCls(val, Boolean)) return val ? 'true' : 'false';
       
       if (isCls(val, Array)) {
-        const vals = val[map](v => this.terraformEncode(v));
-        if (vals.some(v => isCls(v, String) && v[hasHead]('| '))) process.exit(0);
+        const vals = val[map](v => this.terraformEncode(v, opts));
         if (vals.length === 0) return '[]';
         if (vals.length === 1) return `[ ${vals[0]} ]`;
         return `[\n${vals.join(',\n')[indent]('  ')}\n]`;
@@ -37,14 +36,15 @@ export namespace PetalTerraform {
       if (isCls(val, Object)) {
         
         // Handle special objects first...
-        if (val[cl.has]('$$json')) return `jsonencode(${this.terraformEncode(val.$$json)})`;
+        if (val[cl.has]('$$json')) return `jsonencode(${this.terraformEncode(val.$$json, { ...opts, objKeys: 'raw' })})`;
         
         // Strings use "| " to avoid any quoting (enabling complex/arbitrary tf)
         // Objects use "$" as a key-prefix to define "nested blocks" instead of "inline maps"
         
         const keys = Object.keys(val);
         if (keys.length === 1 && keys[0][hasTail]('()')) {
-          const vals = (val[keys[0]] as any[])[map](v => this.terraformEncode(v));
+          // TODO: Is this ever being used?? I think we should get rid of it...
+          const vals = (val[keys[0]] as any[])[map](v => this.terraformEncode(v, opts));
           return `${keys[0].slice(0, -'()'.length)}(${vals.join(', ')})`;
         }
         
@@ -66,17 +66,21 @@ export namespace PetalTerraform {
           if (pcs.length > 1 && !isCls(v, Object))
             throw Error('non-object')[mod]({ k, v });
           
+          // The `objKeys === 'raw'` setting leaves keys unmodified
+          const key = opts.objKeys !== 'raw' ? ph('camel->snake', pcs[0]) : pcs[0];
+          
           // Resolve to raw string?
           if (special && isCls(v, String))
-            return [ ph('camel->snake', pcs[0]), ' = ', this.terraformEncode(v[hasHead]('| ') ? v : `| ${v}`) ];
+            return [ key, ' = ', this.terraformEncode(v[hasHead]('| ') ? v : `| ${v}`, opts) ];
           
           // Resolve to nested block?
           if (special && isCls(v, Object))
-            return [ [ ph('camel->snake', pcs[0]), ...pcs.slice(1)[map](pc => ph('camel->snake', pc)) ].join(' '), ' ', this.terraformEncode(v) ];
+            // Note that `special === true` probably won't ever occur alongside `opts.objKeys === 'raw'`
+            return [ [ key, ...pcs.slice(1)[map](pc => ph('camel->snake', pc)) ].join(' '), ' ', this.terraformEncode(v, opts) ];
           
           // Resolve anything else to typical property - use the key exactly as provided (to support,
           // e.g., aws format for keys in policies, any other specific format, etc.)
-          return [ ph('camel->snake', pcs[0]), ' = ', this.terraformEncode(v) ];
+          return [ key, ' = ', this.terraformEncode(v, opts) ];
           
         });
         
@@ -245,17 +249,9 @@ export namespace PetalTerraform {
       this.tfValue = tfValue;
     }
     
-    async getResultHeader() {
-      return `output "${ph('camel->snake', this.handle)}"`;
-    }
-    getHandle() { return this.handle; }
-    getProps(): { [key: string]: Json } {
-      return {
-        value: this.tfValue,
-        description: '<no desc>',
-        sensitive: false
-      };
-    }
+    async getResultHeader()             { return `output "${ph('camel->snake', this.handle)}"`; }
+    getHandle()                         { return this.handle; }
+    getProps(): { [key: string]: Json } { return { value: this.tfValue, description: '<no desc>', sensitive: false }; }
     
     public getOutput(tfOutputJson): Promise<V> {
       const extracted = tfOutputJson[this.handle].value; // Note `tfOutputJson` has already had object keys converted to camelCase!
