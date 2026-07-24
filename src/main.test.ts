@@ -263,7 +263,7 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
         fact:      fact.kid([ 'repo', 'terraform' ]),  // Simulate a .gitignored repo directory
         patioFact: fact.kid([ 'repo', 'patio' ]), // Simulate a repo directory included in version control
         shedFact:  tempFact.kid([ '@gershy' ]),    // Speed up terraform by referencing a cache dir for all test-scoped terraform work
-        logger:    logger.kid('garden'),
+        logger,
         maturity:  'm0',
         debug:     false,
         pfx:       'tezzzt'
