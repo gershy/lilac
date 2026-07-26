@@ -256,7 +256,7 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
       
       const garden = new Garden({
         name:      'hi',
-        fact:      fact.kid([ 'repo', 'terraform' ]),  // Simulate a .gitignored repo directory
+        infraFact:      fact.kid([ 'repo', 'terraform' ]),  // Simulate a .gitignored repo directory
         patioFact: fact.kid([ 'repo', 'patio' ]), // Simulate a repo directory included in version control
         shedFact:  tempFact.kid([ '@gershy' ]),    // Speed up terraform by referencing a cache dir for all test-scoped terraform work
         logger,
@@ -266,7 +266,7 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
         survey: (ctx, seedBank, add) => add(new seedBank.MyLilac({ name: 'testyman' }))
       });
       
-      const soil = new Soil.LocalStack({ logger, aws: { region: 'ca-central-1' }, seedBank: seedBank });
+      const soil = new Soil.LocalStack({ logger, garden });
       const localStack = await soil.run();
       
       try {
@@ -286,7 +286,7 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
           path: [ 'restapis', testApi.id, 'test-stage', '_user_request_', 'test-api' ],
           method: 'get' as const
         };
-        const res = await http(testEndpoint, {} as any);
+        const res = await http(testEndpoint);
         assertEqual(res, {
           reqArgs: cmpAny,
           code: 200,

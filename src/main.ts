@@ -15,6 +15,7 @@ import { Soil } from './soil/soil.ts';
 import proc, { type ProcOpts } from '@gershy/nodejs-proc';
 import Logger from '@gershy/logger';
 import retry from '@gershy/util-retry';
+import type { HttpInp } from '@gershy/util-http';
 
 // HEEERE1 fixing up flower-to-flower linkage. Notes:
 // - Soil should not have a region - Soil can contain Flowers in multiple regions
@@ -38,7 +39,7 @@ const baseline: typeof cl.baseline = cl.baseline;
 export type ServiceMap = Obj<{
   addr: string,
   port?: number,
-  http?: { path?: string[] }
+  http?: Partial<HttpInp>
 }>;
 
 export class Flower {
@@ -144,8 +145,8 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
   public readonly shedFact:  Fact;    // Storage directory for arbitrary binaries associated with infra (e.g. terraform providers) - non-version-controlled
   public readonly debug:     boolean;
   public readonly defaults:  Obj<any>;
+  public readonly seedBank:   SB;
   
-  protected seedBank:   SB;
   protected survey:     (garden: Garden<SB, Orn>, flowers: SeedBankFlowers<SB, 'real' | 'test'>, add: <F extends Flower>(flower: F) => F) => Orn;
   protected tfProcArgs: { timeoutMs: number, env: Obj<string> };
   
@@ -156,21 +157,21 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
     pfx:        string,
     name:       string,
     logger:     Logger,
-    fact:       Fact,
+    infraFact:  Fact,
     patioFact:  Fact,
     shedFact:   Fact,
     debug:      boolean,
     defaults?:  Obj<any>,
     
     seedBank:   SB,
-    survey:     Garden<SB, Orn>['survey']
+    survey:     (garden: Garden<any, any>, flowers: SeedBankFlowers<SB, 'real' | 'test'>, add: <F extends Flower>(flower: F) => F) => Orn
     
   }) {
     
     this.pfx = args.pfx;
     this.name = args.name;
     this.logger = args.logger;
-    this.infraFact = args.fact;
+    this.infraFact = args.infraFact;
     this.patioFact = args.patioFact;
     this.shedFact = args.shedFact;
     this.debug = args.debug;
@@ -245,7 +246,7 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
   
   public async genTerraform(soil: Soil.Base) {
     
-    const soilTfPetalsPrm = soil.getTerraformPetals(this);
+    const soilTfPetalsPrm = soil.getTerraformPetals();
     
     const outputs = [] as PetalTerraform.Output<any>[];
     
@@ -604,8 +605,8 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
       const { val } = await retry({
         attempts: 100,
         fn: n => logger.scope('attempt', { attemptNum: n }, logger => call(logger, {})),
-        retryable: err => /was unable to delete arn:aws:lambda:[^ ]+ because it is a replicated function/.test(err.output ?? ''),
-        delay: n => 10 * 1000 // 10 seconds between attempts
+        retry: err => /was unable to delete arn:aws:lambda:[^ ]+ because it is a replicated function/.test(err.output ?? ''),
+        delayMs: n => 10 * 1000 // 10 seconds between attempts
       });
       return val;
       
@@ -655,21 +656,25 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
     
     const output = await (async () => {
       
+      const snakeKeysToCamel = (obj: any) => {
+        if (!cl.isCls(obj, Object)) return obj;
+        return obj[cl.mapk]((v, k) => [ phrasing('snake->camel', k), snakeKeysToCamel(v) ]);
+      };
+      
       // Use terraform cli to get output json
       const tfOutputRaw = await this.logicalTf({
         logger: this.logger,
         fact: mainFact,
         term: 'output',
         cmd: 'terraform output -json',
-        opts: {}
+        opts: {
+          env: {
+            TF_LOG: '' // Always prevent verbose output here - it breaks the json parse!!
+          }
+        }
       });
-      
-      const snakeKeysToCamel = (obj: any) => {
-        if (!cl.isCls(obj, Object)) return obj;
-        return obj[cl.mapk]((v, k) => [ phrasing('snake->camel', k), snakeKeysToCamel(v) ]);
-      };
-      
       const tfOutputJson = snakeKeysToCamel(JSON.parse(tfOutputRaw));
+      
       const outputVals = await Promise[cl.allArr](outputs.map(output => output.getOutput(tfOutputJson)));
       
       // Merge all outputs
@@ -680,6 +685,8 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
       }, { _unknownOutputs: [] });
       
     })();
+    
+    Object.assign(this.progressiveServiceMap, output[cl.at]('serviceMap', {}));
     
     return {
       // Now that `terraform apply` is complete we can compute outputs

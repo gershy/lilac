@@ -1,5 +1,5 @@
 import proc from '@gershy/nodejs-proc';
-import { Garden, PetalTerraform, SeedBank } from '../main.ts';
+import { Garden, PetalTerraform } from '../main.ts';
 import retry from '@gershy/util-retry';
 import '@gershy/clearing';
 import http from '@gershy/util-http';
@@ -37,7 +37,7 @@ export namespace Soil {
     | 'route53' | 'route53resolver' | 's3' | 's3control' | 'scheduler' | 'secretsmanager' | 'ses'
     | 'sns' | 'sqs' | 'ssm' | 'stepfunctions' | 'sts' | 'support' | 'swf' | 'transcribe';
   
-  export type BaseArgs = { logger: Logger, seedBank: SeedBank<any> };
+  export type BaseArgs = { logger: Logger, garden: Garden<any, any> };
   export type AwsClientConfig = {
     region: string,
     endpoint?: string,
@@ -47,14 +47,14 @@ export namespace Soil {
   export abstract class Base {
     
     protected logger: Logger;
-    protected seedBank: SeedBank<any>;
+    protected garden: Garden<any, any>;
     constructor(args: BaseArgs) {
       this.logger = args.logger;
-      this.seedBank = args.seedBank;
+      this.garden = args.garden;
     }
     
     public abstract getAwsClientConfig(): AwsClientConfig;
-    public abstract getTerraformPetals(garden: Garden<any, any>): Promise<PetalProjResult>;
+    public abstract getTerraformPetals(): Promise<PetalProjResult>;
     
     // Note the Soil's region is the *default* region - Flowers can vary by region within a Soil!
     public getRegion(): AwsRegionTerm & { _noOverride: true } { return this.getAwsClientConfig().region as any; }
@@ -62,7 +62,6 @@ export namespace Soil {
   };
   
   export type LocalStackArgs = BaseArgs & {
-    aws: { region: AwsRegionTerm }, // TODO: What region is this? The default region? Does localStack support resources in multiple?
     localStackDocker?: {
       image?: `localstack/localstack${':' | ':latest' | '@'}${string}`, // E.g. 'localstack/localstack:latest'
       containerName?: string,
@@ -73,14 +72,12 @@ export namespace Soil {
     
     protected static localStackInternalPort = 4566;
     
-    protected aws: LocalStackArgs['aws'];
     protected localStackDocker: NonNullable<Required<LocalStackArgs['localStackDocker']>>;
     
     constructor(args: LocalStackArgs) {
       
       super({ ...args, logger: args.logger.kid('localStack') });
       
-      this.aws = args.aws;
       this.localStackDocker = {
         image: 'localstack/localstack:latest',
         port: LocalStack.localStackInternalPort,
@@ -90,10 +87,10 @@ export namespace Soil {
       
     }
     
-    public getAwsClientConfig() {
+    public getAwsClientConfig(region?: AwsRegionTerm) {
       const netProc = this.getLocalStackNetProc();
       return {
-        region: this.aws.region,
+        region: region ?? this.garden.defaults.region,
         endpoint: `${netProc.proto}://${netProc.addr}:${netProc.port}`
       };
     }
@@ -109,7 +106,7 @@ export namespace Soil {
       // - sts is used for credential validation
       // - iam is needed for role creation
       const overheadAwsServices: LocalStackAwsService[] = [ 's3', 'dynamodb', 'sts', 'iam' ];
-      return new Set([ ...overheadAwsServices, ...this.seedBank.getAwsServices() ]);
+      return new Set([ ...overheadAwsServices, ...this.garden.seedBank.getAwsServices() ]);
       
     }
     
@@ -165,7 +162,7 @@ export namespace Soil {
             return true
               && containerImage              === image
               && containerPort               === port
-              && containerEnv.DEFAULT_REGION === this.aws.region
+              && containerEnv.DEFAULT_REGION === this.garden.defaults.region
               && services                    === awsServices[toArr](v => v).sort().join(',');
             
           })();
@@ -199,7 +196,7 @@ export namespace Soil {
             | -p ${port}:${LocalStack.localStackInternalPort}
             | -v /var/run/docker.sock:/var/run/docker.sock
             | -e SERVICES=${awsServices[toArr](v => v).join(',')}
-            | -e DEFAULT_REGION=${this.aws.region}
+            | -e DEFAULT_REGION=${this.garden.defaults.region}
             | ${image}
           `).split('\n')[map](ln => ln.trim() || skip).join(' ');
           await proc(runCmd);
@@ -212,23 +209,20 @@ export namespace Soil {
         
       });
       
-      const readyEndpoint = {
-        $req: null as any,
-        $res: null as any as { code: number, body: { services?: any[] } },
-        netProc: { proto: 'http' as const, addr: 'localhost', port },
-        path: [ '_localstack', 'health' ],
-        method: 'get' as const
-      };
       const { val: { services } } = await retry({
         
         // TODO: If the container already exists, it seems its "s3" and "sts" services become unavailable when we try to reinitialize Soil pointing at it??
         
         attempts: 20,
-        delay: n => Math.min(500, 50 * n),
+        delayMs: n => Math.min(500, 50 * n),
         fn: async () => {
           
           // Retry all failures and non-200s
-          const res = await http(readyEndpoint, {} as any).catch(err => err[fire]({ retry: true }));
+          const res = await http({
+            netProc: { proto: 'http' as const, addr: 'localhost', port },
+            path: [ '_localstack', 'health' ],
+            method: 'get' as const
+          }).catch(err => err[fire]({ retry: true }));
           if (res.code !== 200) throw Error('unhealthy')[mod]({ retry: true });
           
           const { ya = [], no = [] } = (res.body.services as { [K in LocalStackAwsService]: 'disabled' | 'available' })
@@ -242,13 +236,12 @@ export namespace Soil {
           return { res, services: ya };
           
         },
-        retryable: err => !!err.retry
+        retry: err => !!err.retry
         
       }).catch(err => err[fire]({ numErrs: err.errs.length, errs: null }));
       logger.log({ $$: 'result', services });
       
       return {
-        aws: { services: [ ...awsServices ], region: this.aws.region },
         netProc: this.getLocalStackNetProc(),
         getApis: async () => {
           const client = new APIGatewayClient(this.getAwsClientConfig());
@@ -276,9 +269,9 @@ export namespace Soil {
       
     }
     
-    public async getTerraformPetals(garden: Garden<any, any>) {
+    public async getTerraformPetals() {
       
-      const { aws } = this;
+      const garden = this.garden;
       const awsServices = [ ...this.getAwsServices() ];
       const netProc = { proto: 'http', addr: 'localhost', port: this.localStackDocker.port }
       const localStackUrl = `${netProc.proto}://${netProc.addr}:${netProc.port}`;
@@ -297,7 +290,7 @@ export namespace Soil {
           
           new PetalTerraform.Provider('aws', {
             
-            region:                    aws.region,
+            region:                    garden.defaults.region,
             skipCredentialsValidation: true,
             skipRequestingAccountId:   true,
             accessKey:                 'test', // Dummy credentials make it impossible for aws requests to succeed
@@ -320,7 +313,7 @@ export namespace Soil {
               }
             },
             $backend$s3: {
-              region:        aws.region,
+              region:        garden.defaults.region,
               encrypt:       true,
               bucket:        args.s3Name,
               key:           'tf',
@@ -341,7 +334,7 @@ export namespace Soil {
             secretKey:                 'test',
             
             // Omit the alias for the default provider!
-            ...(term !== aws.region && { alias: term.split('-').join('_') }),
+            ...(term !== garden.defaults.region && { alias: term.split('-').join('_') }),
             
             // Point providers at LocalStack when testing
             s3UsePathStyle: true,
@@ -356,42 +349,38 @@ export namespace Soil {
     
   };
   
-  export type AwsCloudArgs = BaseArgs & {
-    aws: {
-      region: AwsRegionTerm,
-      auth: { id: string, '!secret': string }
-    }
-  };
+  export type AwsCloudArgs = BaseArgs & { auth: { id: string, '!secret': string } };
   export class AwsCloud extends Base {
     
-    protected aws: AwsCloudArgs['aws'];
+    protected auth: AwsCloudArgs['auth'];
     
     constructor(args: AwsCloudArgs) {
       super(args);
-      this.aws = args.aws;
+      this.auth = args.auth;
     }
     
-    public getAwsClientConfig() {
+    public getAwsClientConfig(region?: AwsRegionTerm) {
       return {
-        region: this.aws.region,
+        region: region ?? this.garden.defaults.region,
         credentials: {
-          accessKeyId: this.aws.auth.id,
-          secretAccessKey: this.aws.auth['!secret']
+          accessKeyId: this.auth.id,
+          secretAccessKey: this.auth['!secret']
         }
       };
     }
-    public async getTerraformPetals(garden: Garden<any, any>) {
+    public async getTerraformPetals() {
       
-      const { aws } = this;
+      const garden = this.garden;
+      const auth = this.auth;
       return {
         
         boot: function*() {
           
           const tfAwsCredsFile = new PetalTerraform.File('creds.ini', String[baseline](`
             | [default]
-            | aws_region            = ${aws.region}
-            | aws_access_key_id     = ${aws.auth.id}
-            | aws_secret_access_key = ${aws.auth['!secret']}
+            | aws_region            = ${garden.defaults.region}
+            | aws_access_key_id     = ${auth.id}
+            | aws_secret_access_key = ${auth['!secret']}
           `));
           yield tfAwsCredsFile;
           yield new PetalTerraform.Terraform({
@@ -406,7 +395,7 @@ export namespace Soil {
             
             sharedCredentialsFiles: [ tfAwsCredsFile.refStr() ],
             profile: 'default', // References a section within the credentials file
-            region: aws.region,
+            region: garden.defaults.region
             
           });
           
@@ -416,9 +405,9 @@ export namespace Soil {
           const credFileProfile = 'default';
           const tfAwsCredsFile = new PetalTerraform.File('creds.ini', String[baseline](`
             | [${credFileProfile}]
-            | aws_region            = ${aws.region}
-            | aws_access_key_id     = ${aws.auth.id}
-            | aws_secret_access_key = ${aws.auth['!secret']}
+            | aws_region            = ${garden.defaults.region}
+            | aws_access_key_id     = ${auth.id}
+            | aws_secret_access_key = ${auth['!secret']}
           `));
           yield tfAwsCredsFile;
           
@@ -433,11 +422,11 @@ export namespace Soil {
               
               sharedCredentialsFiles: [ tfAwsCredsFile.refStr() ],
               profile:                credFileProfile,
-              region:                 aws.region,
+              region:                 garden.defaults.region,
               encrypt:                true,
-              bucket:                args.s3Name,
-              key:                   'tf',
-              dynamodbTable:         args.ddbName
+              bucket:                 args.s3Name,
+              key:                    'tf',
+              dynamodbTable:          args.ddbName
               
             }
           });
@@ -448,7 +437,7 @@ export namespace Soil {
             region:                 term,
             
             // Omit the alias for the default provider!
-            ...(term !== aws.region && { alias: term.split('-').join('_') }),
+            ...(term !== garden.defaults.region && { alias: term.split('-').join('_') }),
             
             $defaultTags: {
               tags: {
