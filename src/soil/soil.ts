@@ -1,5 +1,5 @@
 import proc from '@gershy/nodejs-proc';
-import { type Context, PetalTerraform, SeedBank } from '../main.ts';
+import { Garden, PetalTerraform, SeedBank } from '../main.ts';
 import retry from '@gershy/util-retry';
 import '@gershy/clearing';
 import http from '@gershy/util-http';
@@ -20,9 +20,6 @@ const toArr:    typeof cl.toArr    = cl.toArr;
 const baseline: typeof cl.baseline = cl.baseline;
 const mod:      typeof cl.mod      = cl.mod;
 const group:    typeof cl.group    = cl.group;
-
-// TODO: Consider splitting each Soil implementation into its own unit
-// (Soil.LocalStack unit can, e.g., isolate the `@aws-sdk/client-api-gateway` dependency)
 
 export namespace Soil {
   
@@ -57,7 +54,7 @@ export namespace Soil {
     }
     
     public abstract getAwsClientConfig(): AwsClientConfig;
-    public abstract getTerraformPetals(ctx: Context): Promise<PetalProjResult>;
+    public abstract getTerraformPetals(garden: Garden<any, any>): Promise<PetalProjResult>;
     
     // Note the Soil's region is the *default* region - Flowers can vary by region within a Soil!
     public getRegion(): AwsRegionTerm & { _noOverride: true } { return this.getAwsClientConfig().region as any; }
@@ -279,7 +276,7 @@ export namespace Soil {
       
     }
     
-    public async getTerraformPetals(ctx: Context) {
+    public async getTerraformPetals(garden: Garden<any, any>) {
       
       const { aws } = this;
       const awsServices = [ ...this.getAwsServices() ];
@@ -383,7 +380,7 @@ export namespace Soil {
         }
       };
     }
-    public async getTerraformPetals(ctx: Context) {
+    public async getTerraformPetals(garden: Garden<any, any>) {
       
       const { aws } = this;
       return {
@@ -455,8 +452,8 @@ export namespace Soil {
             
             $defaultTags: {
               tags: {
-                lilacName: ctx.name,
-                lilacPrefix: ctx.pfx
+                lilacName:   garden.name,
+                lilacPrefix: garden.pfx
               }
             }
             

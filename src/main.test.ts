@@ -1,5 +1,5 @@
 import { assertEqual, cmpAny, testRunner } from '../build/utils.test.ts';
-import { type Context, Garden, Flower, SeedBank, PetalTerraform } from './main.ts';
+import { Garden, Flower, SeedBank, PetalTerraform } from './main.ts';
 import { Fact, rootFact, tempFact } from '@gershy/disk';
 import hash from '@gershy/util-hash';
 import http from '@gershy/util-http';
@@ -161,12 +161,9 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
         
         public static getAwsServices(): Soil.LocalStackAwsService[] { return [ 'lambda', 'apigateway', 'iam' ]; }
         
-        protected context: Context;
         protected name: string;
-        constructor(args: { context?: Context, name: string }) {
-          super();
-          if (!args.context) throw Error('context missing');
-          this.context = args.context;
+        constructor(args: { name: string, garden?: Garden<any, any> }) {
+          super(args);
           this.name = args.name;
         }
         
@@ -187,7 +184,7 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
           const zip = await jsZip.generateAsync({ type: 'nodebuffer', compression: 'deflate'[upper]() });
           const lambdaBundle = new PetalTerraform.File('literal/testLambda.js.zip', zip);
           const lambdaRole = new PetalTerraform.Resource('awsIamRole', 'testLambdaRole', {
-            name: `${this.context.pfx}-test-lambda-role`,
+            name: `${this.garden.pfx}-test-lambda-role`,
             assumeRolePolicy: JSON.stringify({
               Version: '2012-10-17',
               Statement: [{
@@ -198,7 +195,7 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
             })
           });
           const lambda = new PetalTerraform.Resource('awsLambdaFunction', 'testLambda', {
-            functionName: `${this.context.pfx}-test-lambda`,
+            functionName: `${this.garden.pfx}-test-lambda`,
             role: lambdaRole.ref('arn'),
             runtime: 'nodejs22.x',
             handler: 'lambda/code.handler',
@@ -207,7 +204,7 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
           });
           
           const api = new PetalTerraform.Resource('awsApiGatewayRestApi', 'testApi', {
-            name: `${this.context.pfx}-test-api`
+            name: `${this.garden.pfx}-test-api`
           });
           const apiResource = new PetalTerraform.Resource('awsApiGatewayResource', 'testResource', {
             restApiId: api.ref('id'),
@@ -257,22 +254,16 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
         MyLilac: { real: TestInfra, test: TestInfraFake }
       });
       
-      const context: Context = {
-        progressiveServiceMap: {},
+      const garden = new Garden({
         name:      'hi',
         fact:      fact.kid([ 'repo', 'terraform' ]),  // Simulate a .gitignored repo directory
         patioFact: fact.kid([ 'repo', 'patio' ]), // Simulate a repo directory included in version control
         shedFact:  tempFact.kid([ '@gershy' ]),    // Speed up terraform by referencing a cache dir for all test-scoped terraform work
         logger,
-        maturity:  'm0',
         debug:     false,
-        pfx:       'tezzzt'
-      };
-      
-      const garden = new Garden({
-        context,
+        pfx:       'tezzzt',
         seedBank: seedBank,
-        define: (ctx, seedBank) => [ new seedBank.MyLilac({ name: 'testyman' }) ]
+        survey: (ctx, seedBank, add) => add(new seedBank.MyLilac({ name: 'testyman' }))
       });
       
       const soil = new Soil.LocalStack({ logger, aws: { region: 'ca-central-1' }, seedBank: seedBank });
@@ -284,7 +275,7 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
         
         const apis = await localStack.getApis();
         
-        const testApiName = `${context.pfx}-test-api`;
+        const testApiName = `${garden.pfx}-test-api`;
         const testApi = apis[cl.at](testApiName, null);
         if (!testApi) throw Error('test api missing')[mod]({ testApiName, apis });
         

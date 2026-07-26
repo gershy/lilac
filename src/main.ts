@@ -14,8 +14,15 @@ import phrasing from '@gershy/util-phrasing';
 import { Soil } from './soil/soil.ts';
 import proc, { type ProcOpts } from '@gershy/nodejs-proc';
 import Logger from '@gershy/logger';
-import type { NetProc } from '@gershy/util-http';
 import retry from '@gershy/util-retry';
+
+// HEEERE1 fixing up flower-to-flower linkage. Notes:
+// - Soil should not have a region - Soil can contain Flowers in multiple regions
+// - Flowers should all be autopopulated with a Garden reference; the Garden should store all
+//   needed context (a superset of `LilacContext`; includes registry, perhaps a *default* region?)
+// - Need to think rly rly rly rly rly hard about context and default region. Soil has a stupid
+//   specific need for region to be defined everywhere but I think this is almost entirely
+//   attributable to localstack which can honestly be deleted
 
 const { isCls, skip } = cl;
 const toArr:    typeof cl.toArr    = cl.toArr;
@@ -28,44 +35,11 @@ const merge:    typeof cl.merge    = cl.merge;
 const upper:    typeof cl.upper    = cl.upper;
 const baseline: typeof cl.baseline = cl.baseline;
 
-export type HttpApi = {
-  netProc: NetProc,
-  path: string[],
-  method: 'head' | 'get' | 'post' | 'patch' | 'put' | 'delete'
-};
-
-// Consider: switch to a map of absolute service identifiers? `${AccountId}/cfDistro/global/${Pfx}-${string}` | `${AccountId}/apiGw/${AwsRegion}/${'http' | 'sokt'}/${Pfx}-${string}`
-export type Service = never
-  | { type: 'domain',   httpApi: HttpApi }
-  | { type: 'apiGw',    regionTerm: string, httpApi: HttpApi }
-  | { type: 'cfDistro', globalTerm: string, httpApi: HttpApi };
-
 export type ServiceMap = Obj<{
   addr: string,
   port?: number,
   http?: { path?: string[] }
 }>;
-
-export type Context = {
-  
-  name:       string,  // Name of the system/garden
-  logger:     Logger,
-  fact:       Fact,    // Root of the infrastructure directory
-  patioFact:  Fact,    // Fact within version control, for any version-controlled infra files (e.g. .terraform.lock.hcl)
-  shedFact:   Fact,    // Storage directory for arbitrary binaries associated with infra (e.g. terraform providers)
-  maturity:   string,  // TODO: A Lilac run has a maturity? Or a single Lilac build supports multiple maturities?
-  debug:      boolean,
-  pfx:        string,  // Establishes a namespace for all resources provisioned for the particular app
-  
-  // The "progressive" service map is populated gradually - i.e. only after a Garden has been grown (at which point, e.g., an apigw name has resolved to an actual execute-api)
-  progressiveServiceMap: ServiceMap
-  
-  // // Throttlers:
-  // // - webpack: shell "webpack" commands
-  // // - zipFile: jszipping files
-  // throttlers: { [K in 'webpack' | 'zipFile']: Throttler }
-  
-};
 
 export class Flower {
   
@@ -79,8 +53,11 @@ export class Flower {
   // Note: This is also becoming less relevant, shifting away from localstack
   public static getAwsServices(): readonly Soil.LocalStackAwsService[] { return []; }
   
+  protected garden:     Garden<any, any>;
   protected computedPetals: null | Promise<PetalTerraform.Base[]>;
-  constructor(/* All Flower subclasses must accept a single Object argument! (As it is auto-populated by the SeedBank) */) {
+  constructor(args: { garden?: Garden<any, any> } /* All Flower subclasses must accept a single Object argument! */) {
+    if (!args.garden) throw Error('garden missing');
+    this.garden = args.garden;
     this.computedPetals = null;
   }
   public getServiceMapTf(): ServiceMap { return {}; }
@@ -142,14 +119,14 @@ export class SeedBank<Flowers extends { [K: string]: { real: FlowerCtor, test: F
   add<MoreFlowers extends Obj<{ real: typeof Flower, test: typeof Flower }>>(flowers: MoreFlowers): SeedBank<Omit<Flowers, keyof MoreFlowers> & MoreFlowers> {
     return new SeedBank({ ...this.flowers, ...flowers } as any);
   }
-  get<Mode extends 'real' | 'test'>(context: Context, soil: Soil.Base, mode: Mode): SeedBankFlowers<SeedBank<Flowers>, Mode> {
+  get<Mode extends 'real' | 'test'>(garden: Garden<any, any>, mode: Mode): SeedBankFlowers<SeedBank<Flowers>, Mode> {
     
     return this.flowers[map]((v) => {
       
       // This function returns a Flower constructor that automatically assigns `context` and `soil` properties
       const Flower = v[mode];
       return function(args: Obj<any>) {
-        return new Flower({ context, soil, ...args });
+        return new Flower({ garden, ...args });
       } as any as typeof Flower;
       
     });
@@ -157,30 +134,55 @@ export class SeedBank<Flowers extends { [K: string]: { real: FlowerCtor, test: F
   
 };
 
-export class Garden<SB extends SeedBank<any>> {
+export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
   
-  // Note this class currently is coupled to terraform logic
+  public readonly pfx:       string;  // Establishes a namespace for all resources provisioned for the particular app
+  public readonly name:      string;  // Name of the system/garden
+  public readonly logger:    Logger;
+  public readonly infraFact: Fact;    // Root of the infrastructure directory
+  public readonly patioFact: Fact;    // Fact within version control, for any version-controlled infra files (e.g. .terraform.lock.hcl)
+  public readonly shedFact:  Fact;    // Storage directory for arbitrary binaries associated with infra (e.g. terraform providers) - non-version-controlled
+  public readonly debug:     boolean;
+  public readonly defaults:  Obj<any>;
   
-  protected context:    Context;
   protected seedBank:   SB;
-  protected def:        (context: Context, flowers: SeedBankFlowers<SB, 'real' | 'test'>) => Loopable<Flower>;
+  protected survey:     (garden: Garden<SB, Orn>, flowers: SeedBankFlowers<SB, 'real' | 'test'>, add: <F extends Flower>(flower: F) => F) => Orn;
   protected tfProcArgs: { timeoutMs: number, env: Obj<string> };
+  
+  public readonly progressiveServiceMap: ServiceMap; // The "progressive" service map is populated gradually - i.e. only after a Garden has been grown (at which point, e.g., an apigw name has resolved to an actual execute-api)
   
   constructor(args: {
     
-    context:  Context,
-    seedBank: SB,
-    define:   Garden<SB>['def']
+    pfx:        string,
+    name:       string,
+    logger:     Logger,
+    fact:       Fact,
+    patioFact:  Fact,
+    shedFact:   Fact,
+    debug:      boolean,
+    defaults?:  Obj<any>,
+    
+    seedBank:   SB,
+    survey:     Garden<SB, Orn>['survey']
     
   }) {
     
-    const { define, seedBank, context } = args;
-    this.context = context;
-    this.seedBank = seedBank;
-    this.def = define;
+    this.pfx = args.pfx;
+    this.name = args.name;
+    this.logger = args.logger;
+    this.infraFact = args.fact;
+    this.patioFact = args.patioFact;
+    this.shedFact = args.shedFact;
+    this.debug = args.debug;
+    this.defaults = { region: 'ca-central-1' }[cl.merge](args.defaults ?? {});
+    
+    this.seedBank = args.seedBank;
+    this.survey = args.survey;
+    
+    this.progressiveServiceMap = {};
     
     // Settings passed to all `terraform` proc calls
-    const verbosity: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'none' = this.context.debug ? 'debug' : 'none';
+    const verbosity: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'none' = this.debug ? 'debug' : 'none';
     this.tfProcArgs = {
       timeoutMs: 0, // Disable timeouts - last thing we need is a timeout corrupting a terraform action!
       env: {
@@ -193,7 +195,7 @@ export class Garden<SB extends SeedBank<any>> {
     
   }
   
-  protected async * getPetals<Mode extends 'real' | 'test' = 'real'>(soil: Soil.Base, mode?: Mode) {
+  protected async getPetals<Mode extends 'real' | 'test' = 'real'>(mode?: Mode) {
     
     // TODO: We always use the "real" flowers from the seed bank - this is part of the shift to
     // localStack; we always generate genuine terraform and apply it to the docker localStack.
@@ -202,13 +204,17 @@ export class Garden<SB extends SeedBank<any>> {
     // conditionally calling `this.registry.get('fake')`... (will need an additional `mode: 'real' | 'fake'` arg here)
     
     const seenFlowers = new Set<Flower>();
-    for await (const topLevelFlower of await this.def(this.context, this.seedBank.get(this.context, soil, mode ?? 'real') as SeedBankFlowers<SB, Mode>))
+    const ornaments = await this.survey(
+      this,
+      this.seedBank.get(this, mode ?? 'real') as SeedBankFlowers<SB, Mode>,
+      <F extends Flower>(f: F) => (seenFlowers.add(f), f)
+    );
+    
+    for await (const topLevelFlower of seenFlowers)
       for (const flower of topLevelFlower.getDependencies())
         seenFlowers.add(flower);
     
     // Now we've exhaustively referenced all Flowers - we can cultivate them
-    
-    const flowers = seenFlowers[toArr](v => v);
     
     // Example service map:
     //    | {
@@ -216,36 +222,42 @@ export class Garden<SB extends SeedBank<any>> {
     //    |   'apiGw/ca-central-1/http/pfx-coolGateway': { addr: 'apiidzzz.execute-api.ca-central-1.amazonaws.com', port: 443, http: { path: [ 'stage0' ] } }
     //    |   'cfDistro/pfx-coolCdn': { addr: resolved('cloudfront_distribution.my_cf_distro.domain_name'),    port: 443, http: { path: [] } }
     //    | }
+    const flowers = seenFlowers[toArr](v => v);
     const serviceMap = flowers.reduce((m, v) => Object.assign(m, v.getServiceMapTf()), {} as ServiceMap);
     await Promise.all(flowers[map](f => f.cultivate(serviceMap)));
     
     // Yield all unique petals of all flowers
-    const seenPetals = new Set<PetalTerraform.Base>();
-    for (const flower of seenFlowers) {
-      for await (const petal of await flower.getPetals()) {
-        if (seenPetals.has(petal)) continue;
-        seenPetals.add(petal);
-        yield petal;
+    
+    return { ornaments, petals: (async function*() {
+      
+      const seenPetals = new Set<PetalTerraform.Base>();
+      for (const flower of seenFlowers) {
+        for await (const petal of await flower.getPetals()) {
+          if (seenPetals.has(petal)) continue;
+          seenPetals.add(petal);
+          yield petal;
+        }
       }
-    }
+      
+    })() };
     
   }
   
   public async genTerraform(soil: Soil.Base) {
     
-    const soilTfPetalsPrm = soil.getTerraformPetals(this.context);
+    const soilTfPetalsPrm = soil.getTerraformPetals(this);
     
     const outputs = [] as PetalTerraform.Output<any>[];
     
-    const { bootFact, mainFact } = await this.context.logger.scope('garden', {}, async logger => {
+    const { bootFact, mainFact, ornaments } = await this.logger.scope('garden', {}, async logger => {
       
-      type SetupTfProjArgs = {
+      type SetupTfProjArgs<O> = {
         term: string,
         logger: Logger,
         fact: Fact,
-        setup: (fact: Fact, writePetalTfAndFiles: <T extends PetalTerraform.Base>(petal: T) => Promise<T>) => Promise<void>
+        setup: (writePetalTfAndFiles: <T extends PetalTerraform.Base>(petal: T) => Promise<T>) => Promise<O>
       };
-      const setupTfProj = async (args: SetupTfProjArgs) => args.logger.scope('genTf', { proj: this.context.name, tf: args.term }, async logger => {
+      const setupTfProj = async <O>(args: SetupTfProjArgs<O>) => args.logger.scope('genTf', { proj: this.name, tf: args.term }, async logger => {
         
         // Allows a terraform project to be defined in terms of a function which writes to main.tf,
         // and adds any arbitrary additional files to the terraform project
@@ -266,10 +278,10 @@ export class Garden<SB extends SeedBank<any>> {
         });
         
         // Write new terraform
-        await logger.scope('files.generate', {}, async logger => {
+        const result = await logger.scope('files.generate', {}, async logger => {
           
           const stream = await args.fact.kid([ 'main.tf' ]).getDataHeadStream();
-          await args.setup(args.fact, async petal => {
+          const result = await args.setup(async petal => {
             
             // This function allows a caller to easily write petals into the terraform project
             
@@ -296,31 +308,33 @@ export class Garden<SB extends SeedBank<any>> {
           // Pull in any version-controlled lock file
           
           const tfFact = args.fact;
-          const patioTfHclFact = this.context.patioFact.kid([ tfFact.getCmps().at(-1)!, '.terraform.lock.hcl' ]);
+          const patioTfHclFact = this.patioFact.kid([ tfFact.getCmps().at(-1)!, '.terraform.lock.hcl' ]);
           const tfHclData = await patioTfHclFact.getData('str');
           if (tfHclData) await tfFact.kid([ '.terraform.lock.hcl' ]).setData(tfHclData);
           
+          return result;
+          
         });
         
-        return args.fact;
+        return { fact: args.fact, result };
         
       });
       
       // Pick names for the s3 and ddb terraform state persistence entities
-      const s3Name = `${this.context.pfx}-tf-state`;
-      const ddbName = `${this.context.pfx}-tf-state`;
+      const s3Name = `${this.pfx}-tf-state`;
+      const ddbName = `${this.pfx}-tf-state`;
       
       // We generate *two* terraform projects for every logical project - overall we want a
       // terraform project which saves its state in the cloud; in order to do this we need to first
       // provision the cloud storage engines to save the terraform state. The "boot" tf project
       // takes care of this, and "main" uses the storage engine provisioned by "boot".
-      return Promise[allObj]({ // TODO: Can probably switch to `Promise[allObj]([ 'boot', 'main' ][toObj](...))` resulting in `setupTfProj` being inlined
+      const { boot, main } = await Promise[allObj]<{ fact: Fact, result: null | Orn }>({ // TODO: Can probably switch to `Promise[allObj]([ 'boot', 'main' ][toObj](...))` resulting in `setupTfProj` being inlined
       
-        bootFact: setupTfProj({
+        boot: setupTfProj({
           term: 'boot',
           logger,
-          fact: this.context.fact.kid([ 'boot' ]),
-          setup: async (fact, writePetalTfAndFiles) => {
+          fact: this.infraFact.kid([ 'boot' ]),
+          setup: async writePetalTfAndFiles => {
             
             // Include the soil's infrastructure
             const { boot } = await soilTfPetalsPrm;
@@ -354,29 +368,40 @@ export class Garden<SB extends SeedBank<any>> {
               deletionProtectionEnabled: false
             }));
             
+            return null;
+            
           }
         }),
         
-        mainFact: setupTfProj({
+        main: setupTfProj({
           term: 'main',
           logger,
-          fact: this.context.fact.kid([ 'main' ]),
-          setup: async (fact, writePetalTfAndFiles) => {
+          fact: this.infraFact.kid([ 'main' ]),
+          setup: async writePetalTfAndFiles => {
             
             // Include the soil's infrastructure
             const { main } = await soilTfPetalsPrm;
             for await (const petal of await main({ s3Name, ddbName })) await writePetalTfAndFiles(petal);
             
-            for await (const petal of this.getPetals(soil)) await writePetalTfAndFiles(petal);
+            const { ornaments, petals } = await this.getPetals();
+            for await (const petal of petals) await writePetalTfAndFiles(petal);
+            
+            return ornaments;
             
           }
         })
         
       });
       
+      return {
+        bootFact: boot.fact,
+        mainFact: main.fact,
+        ornaments: main.result as Orn
+      };
+      
     });
     
-    return { bootFact, mainFact, outputs };
+    return { bootFact, mainFact, outputs, ornaments };
     
   }
   
@@ -392,7 +417,7 @@ export class Garden<SB extends SeedBank<any>> {
     
     const writeLog = async (preamble: string, status: 'accept' | 'reject', output: string) => {
       
-      const logFact = this.context.shedFact.kid([ '.log', `garden-tf-${term}-${+new Date()}-${status}.txt` ]);
+      const logFact = this.shedFact.kid([ '.log', `garden-tf-${term}-${+new Date()}-${status}.txt` ]);
       try {
         await logFact.setData([
           `Context:`,
@@ -463,7 +488,7 @@ export class Garden<SB extends SeedBank<any>> {
     
     return this.logicalTf({ ...args, term: 'init', cmd: 'terraform init -input=false', opts: {}, wrap: async (logger, call) => {
       
-      const mirrorFact = this.context.shedFact.kid([ 'lilacTerraformMirror' ]);
+      const mirrorFact = this.shedFact.kid([ 'lilacTerraformMirror' ]);
       
       return tryWithHealing({
         fn: () => logger.scope('attempt', {}, async logger => {
@@ -483,7 +508,7 @@ export class Garden<SB extends SeedBank<any>> {
           // The tf lock file resulting from the successful `call` (`terraform init`) should be
           // written to version control - so use `patioFact`!
           const tfFact = args.fact;
-          await this.context.patioFact.kid([ tfFact.getCmps().at(-1)!, '.terraform.lock.hcl' ]).setData(
+          await this.patioFact.kid([ tfFact.getCmps().at(-1)!, '.terraform.lock.hcl' ]).setData(
             await tfFact.kid([ '.terraform.lock.hcl' ]).getData('bin')
           );
           
@@ -592,13 +617,13 @@ export class Garden<SB extends SeedBank<any>> {
     
     if (deploy.type === 'test') throw Error('not implemented')[mod]({ type: 'test' }); // TODO: Can be nice to have local service mocks!
     
-    const { bootFact, mainFact, outputs } = await this.genTerraform(deploy.soil);
+    const { bootFact, mainFact, outputs, ornaments } = await this.genTerraform(deploy.soil);
     
     // Init+apply both "boot" and "main", in optimistic fashion
     const isHealableTerraformApply = err => /run[^a-zA-Z0-9]+terraform init/.test(err.output as string ?? '');
     
     const err = new Error('');
-    await this.context.logger.scope('grow', { type: deploy.type, soil: cl.getClsName(deploy.soil) }, async logger => {
+    await this.logger.scope('grow', { type: deploy.type, soil: cl.getClsName(deploy.soil) }, async logger => {
       
       // Note that logical individual tf operations are handled by `this.logicalTfXxx` methods;
       // here, we are doing a *logical project spawn* - this involves coordinating the "boot" tf
@@ -632,7 +657,7 @@ export class Garden<SB extends SeedBank<any>> {
       
       // Use terraform cli to get output json
       const tfOutputRaw = await this.logicalTf({
-        logger: this.context.logger,
+        logger: this.logger,
         fact: mainFact,
         term: 'output',
         cmd: 'terraform output -json',
@@ -659,7 +684,8 @@ export class Garden<SB extends SeedBank<any>> {
     return {
       // Now that `terraform apply` is complete we can compute outputs
       output,
-      rake: () => this.context.logger.scope('rake', { type: deploy.type, soil: cl.getClsName(deploy.soil) }, async logger => {
+      ornaments,
+      rake: () => this.logger.scope('rake', { type: deploy.type, soil: cl.getClsName(deploy.soil) }, async logger => {
         
         logger = Logger.dummy; // Make "rake" log as if it were one opaque operation
         
