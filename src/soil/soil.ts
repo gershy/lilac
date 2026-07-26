@@ -441,7 +441,7 @@ export namespace Soil {
             
             $defaultTags: {
               tags: {
-                lilacName:   garden.name,
+                lilacName:   garden.term,
                 lilacPrefix: garden.pfx
               }
             }

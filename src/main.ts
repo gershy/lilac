@@ -138,7 +138,7 @@ export class SeedBank<Flowers extends { [K: string]: { real: FlowerCtor, test: F
 export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
   
   public readonly pfx:       string;  // Establishes a namespace for all resources provisioned for the particular app
-  public readonly name:      string;  // Name of the system/garden
+  public readonly term:      string;  // Name of the system/garden
   public readonly logger:    Logger;
   public readonly infraFact: Fact;    // Root of the infrastructure directory
   public readonly patioFact: Fact;    // Fact within version control, for any version-controlled infra files (e.g. .terraform.lock.hcl)
@@ -155,7 +155,7 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
   constructor(args: {
     
     pfx:        string,
-    name:       string,
+    term:       string,
     logger:     Logger,
     infraFact:  Fact,
     patioFact:  Fact,
@@ -169,7 +169,7 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
   }) {
     
     this.pfx = args.pfx;
-    this.name = args.name;
+    this.term = args.term;
     this.logger = args.logger;
     this.infraFact = args.infraFact;
     this.patioFact = args.patioFact;
@@ -220,7 +220,7 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
     // Example service map:
     //    | {
     //    |   'domain/my-domain.com': { addr: 'domain/my-domain.com' },
-    //    |   'apiGw/ca-central-1/http/pfx-coolGateway': { addr: 'apiidzzz.execute-api.ca-central-1.amazonaws.com', port: 443, http: { path: [ 'stage0' ] } }
+    //    |   'apiGw/ca-central-1/http/pfx-coolGateway': { addr: 'apiidxyz.execute-api.ca-central-1.amazonaws.com', port: 443, http: { path: [ 'stage0' ] } }
     //    |   'cfDistro/pfx-coolCdn': { addr: resolved('cloudfront_distribution.my_cf_distro.domain_name'),    port: 443, http: { path: [] } }
     //    | }
     const flowers = seenFlowers[toArr](v => v);
@@ -258,7 +258,7 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
         fact: Fact,
         setup: (writePetalTfAndFiles: <T extends PetalTerraform.Base>(petal: T) => Promise<T>) => Promise<O>
       };
-      const setupTfProj = async <O>(args: SetupTfProjArgs<O>) => args.logger.scope('genTf', { proj: this.name, tf: args.term }, async logger => {
+      const setupTfProj = async <O>(args: SetupTfProjArgs<O>) => args.logger.scope('genTf', { proj: this.term, tf: args.term }, async logger => {
         
         // Allows a terraform project to be defined in terms of a function which writes to main.tf,
         // and adds any arbitrary additional files to the terraform project
@@ -688,19 +688,24 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
     
     Object.assign(this.progressiveServiceMap, output[cl.at]('serviceMap', {}));
     
-    return {
-      // Now that `terraform apply` is complete we can compute outputs
-      output,
-      ornaments,
-      rake: () => this.logger.scope('rake', { type: deploy.type, soil: cl.getClsName(deploy.soil) }, async logger => {
-        
-        logger = Logger.dummy; // Make "rake" log as if it were one opaque operation
-        
-        await this.logicalTfDestroy({ logger, fact: mainFact });
-        await this.logicalTfDestroy({ logger, fact: bootFact });
-        
-      }).catch(cause => err[cl.fire]({ msg: 'rake failed', cause }))
-    };
+    const rake = () => this.logger.scope('rake', { type: deploy.type, soil: cl.getClsName(deploy.soil) }, async logger => {
+      
+      logger = Logger.dummy; // Make "rake" log as if it were one opaque operation
+      
+      await this.logicalTfDestroy({ logger, fact: mainFact });
+      await this.logicalTfDestroy({ logger, fact: bootFact });
+      
+    }).catch(cause => err[cl.fire]({ msg: 'rake failed', cause }));
+    
+    const result = { output, ornaments, rake };
+    
+    const { manualRequirements = {} } = output;
+    if (!manualRequirements[cl.empty]()) throw Error('requirements unsatisfied')[cl.mod]({
+      manualRequirements,
+      ...result[cl.slice]([ 'rake' ])
+    });
+    
+    return result;
     
   }
   

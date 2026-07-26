@@ -79,7 +79,7 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
       
       const res = new PetalTerraform.Resource('awsWafv2WebAcl', 'happyWaf', {
         
-        name: `tezzzt-coolFirewall`,
+        name: `lilactest-coolFirewall`,
         scope: 'cloudfront'[upper](),
         description: 'firewall',
         
@@ -119,7 +119,7 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
       const tf = await res.getResult();
       assertEqual(tf, String[baseline](`
         | resource "aws_wafv2_web_acl" "happy_waf" {
-        |   name = "tezzzt-coolFirewall"
+        |   name = "lilactest-coolFirewall"
         |   scope = "CLOUDFRONT"
         |   description = "firewall"
         |   default_action {
@@ -255,13 +255,13 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
       });
       
       const garden = new Garden({
-        name:      'hi',
+        term:      'hi',
         infraFact:      fact.kid([ 'repo', 'terraform' ]),  // Simulate a .gitignored repo directory
         patioFact: fact.kid([ 'repo', 'patio' ]), // Simulate a repo directory included in version control
         shedFact:  tempFact.kid([ '@gershy' ]),    // Speed up terraform by referencing a cache dir for all test-scoped terraform work
         logger,
         debug:     false,
-        pfx:       'tezzzt',
+        pfx:       'lilactest',
         seedBank: seedBank,
         survey: (ctx, seedBank, add) => add(new seedBank.MyLilac({ name: 'testyman' }))
       });
