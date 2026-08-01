@@ -17,14 +17,6 @@ import Logger from '@gershy/logger';
 import retry from '@gershy/util-retry';
 import type { HttpInp } from '@gershy/util-http';
 
-// HEEERE1 fixing up flower-to-flower linkage. Notes:
-// - Soil should not have a region - Soil can contain Flowers in multiple regions
-// - Flowers should all be autopopulated with a Garden reference; the Garden should store all
-//   needed context (a superset of `LilacContext`; includes registry, perhaps a *default* region?)
-// - Need to think rly rly rly rly rly hard about context and default region. Soil has a stupid
-//   specific need for region to be defined everywhere but I think this is almost entirely
-//   attributable to localstack which can honestly be deleted
-
 const { isCls, skip } = cl;
 const toArr:    typeof cl.toArr    = cl.toArr;
 const allObj:   typeof cl.allObj   = cl.allObj;
@@ -52,6 +44,7 @@ export class Flower {
   // TODO: The naming of these services is coupled to LocalStack - consider using Lilac-scoped
   // naming, and add a translation layer from Lilac->LocalStack in Soil.LocalStack?
   // Note: This is also becoming less relevant, shifting away from localstack
+  // TODO: Remove localstack lol
   public static getAwsServices(): readonly Soil.LocalStackAwsService[] { return []; }
   
   protected garden:     Garden<any, any>;
