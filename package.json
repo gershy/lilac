@@ -1,6 +1,6 @@
 {
   "name": "@gershy/lilac",
-  "version": "0.0.50",
+  "version": "0.0.51",
   "author": "Gershom Maes",
   "description": "Luscious infrastructure Living as Code - an opinionated approach to IAC",
   "keywords": [
@@ -11,34 +11,34 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gershy/lilac.git"
+    "url": "git+https://github.com/gershyNpm/lilac.git"
   },
   "bugs": {
-    "url": "https://github.com/gershy/lilac/issues"
+    "url": "https://github.com/gershyNpm/lilac/issues"
   },
-  "homepage": "https://github.com/gershy/lilac#readme",
+  "homepage": "https://github.com/gershyNpm/lilac#readme",
   "type": "module",
   "files": [
     "cmp"
   ],
   "license": "ISC",
   "peerDependencies": {
-    "@gershy/clearing": "^0.0.51"
+    "@gershy/clearing": "^0.0.52"
   },
   "devDependencies": {
-    "@gershy/disk": "^0.0.34",
-    "@gershy/entry": "^0.0.21",
-    "@gershy/logger": "^0.0.19",
-    "@gershy/util-codec-parse": "^0.0.19",
-    "@gershy/util-hash": "^0.0.24",
+    "@gershy/disk": "^0.0.35",
+    "@gershy/entry": "^0.0.22",
+    "@gershy/logger": "^0.0.20",
+    "@gershy/util-codec-parse": "^0.0.20",
+    "@gershy/util-hash": "^0.0.25",
     "@types/node": "^24.10.1",
     "jszip": "^3.10.1"
   },
   "dependencies": {
-    "@gershy/nodejs-proc": "^0.0.21",
-    "@gershy/util-http": "^0.0.19",
-    "@gershy/util-phrasing": "^0.0.17",
-    "@gershy/util-try-with-healing": "^0.0.15",
+    "@gershy/nodejs-proc": "^0.0.22",
+    "@gershy/util-http": "^0.0.20",
+    "@gershy/util-phrasing": "^0.0.18",
+    "@gershy/util-try-with-healing": "^0.0.16",
     "@aws-sdk/client-api-gateway": "^3.893.0"
   },
   "exports": {
