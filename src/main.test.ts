@@ -167,6 +167,8 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
           this.name = args.name;
         }
         
+        public getFlowerId() { return `dummy/${this.name}` as any; }
+        
         public async computePetals() {
           
           const code = String[baseline](`
@@ -251,12 +253,12 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
       class TestInfraFake extends TestInfra {};
       
       const seedBank = new SeedBank({
-        MyLilac: { real: TestInfra, test: TestInfraFake }
+        MyLilac: { real: TestInfra, fake: TestInfraFake }
       });
       
       const garden = new Garden({
         term:      'hi',
-        infraFact:      fact.kid([ 'repo', 'terraform' ]),  // Simulate a .gitignored repo directory
+        infraFact: fact.kid([ 'repo', 'terraform' ]),  // Simulate a .gitignored repo directory
         patioFact: fact.kid([ 'repo', 'patio' ]), // Simulate a repo directory included in version control
         shedFact:  tempFact.kid([ '@gershy' ]),    // Speed up terraform by referencing a cache dir for all test-scoped terraform work
         logger,
@@ -271,7 +273,7 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
       
       try {
         
-        await garden.grow({ type: 'real', soil });
+        await garden.grow(soil);
         
         const apis = await localStack.getApis();
         

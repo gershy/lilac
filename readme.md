@@ -40,6 +40,10 @@ The Lilac Registry exhaustively represents the set of Lilac Resource types avail
 
 IAC deploys always involve the creation of infrastructure-describing code, which is abstracted away by Lilac and treated as ephemeral. But sometimes, deploys also involve the creation of files which are expected to be checked into version control. The "patio" is a file pointer that ought to be provided by the consumer, and points to some arbitrary directory in their control, which is checked into version control. Lilac will populate this directory, and pull from it appropriately (in order to reproduce deploys where ephemeral code is generated, and version-controlled code is still version-controlled). Note a good example of a version-controlled IAC file is terraform's .terraform.lock.hcl file!
 
+## Callers
+
+To find out more about `Callers`, which make integrations between services possible, see `./readme.callers.md`
+
 ## Tech debt
 - TODO: Soil
 - LocalStack is unreliable without public network - especially when partitioning lambdas

@@ -79,7 +79,7 @@ export namespace Soil {
       super({ ...args, logger: args.logger.kid('localStack') });
       
       this.localStackDocker = {
-        image: 'localstack/localstack:latest',
+        image: 'localstack/localstack:4.14.0',   // Note 4.14.0 predates auth token requirement
         port: LocalStack.localStackInternalPort,
         containerName: 'gershyLilacLocalStack',
         ...args.localStackDocker
@@ -135,11 +135,12 @@ export namespace Soil {
       
       await logger.scope('dockerDeploy', { image, containerName, port }, async logger => {
         
-        await proc('docker info').catch(({ output }) => Error('docker unavailable')[fire]({ output }) );
         logger.log({ $$: 'dockerActive' });
         
         const containers = await this.getDockerContainers();
         let state = containers.find(c => c.name === containerName)?.state ?? 'nonexistent';
+        
+        logger.log({ state });
         
         // First if a container already exists ensure it's compatible with our given config
         if ([ 'running', 'paused', 'exited' ][has](state)) {
@@ -199,7 +200,8 @@ export namespace Soil {
             | -e DEFAULT_REGION=${this.garden.defaults.region}
             | ${image}
           `).split('\n')[map](ln => ln.trim() || skip).join(' ');
-          await proc(runCmd);
+          const r = await proc(runCmd);
+          logger.log({ dockerRunOut: r.output });
           
           state = 'running';
           
@@ -451,7 +453,6 @@ export namespace Soil {
         }
         
       };
-      
       
     }
     

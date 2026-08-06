@@ -15,7 +15,7 @@ import { Soil } from './soil/soil.ts';
 import proc, { type ProcOpts } from '@gershy/nodejs-proc';
 import Logger from '@gershy/logger';
 import retry from '@gershy/util-retry';
-import type { HttpInp } from '@gershy/util-http';
+import type { ServiceMap } from './main.ts';
 
 const { isCls, skip } = cl;
 const toArr:    typeof cl.toArr    = cl.toArr;
@@ -28,13 +28,7 @@ const merge:    typeof cl.merge    = cl.merge;
 const upper:    typeof cl.upper    = cl.upper;
 const baseline: typeof cl.baseline = cl.baseline;
 
-export type ServiceMap = Obj<{
-  addr: string,
-  port?: number,
-  http?: Partial<HttpInp>
-}>;
-
-export class Flower {
+export abstract class Flower {
   
   // TODO: The downside of having this static is that different instances may use different
   // services - e.g. api gateway instance may have "useEdge: true", in which case we'd like to
@@ -54,7 +48,10 @@ export class Flower {
     this.garden = args.garden;
     this.computedPetals = null;
   }
-  public getServiceMapTf(): ServiceMap { return {}; }
+  
+  public abstract getFlowerId(): null | ServiceMap.Key;
+  
+  public getServiceMapTf(): ServiceMap.Full { return {}; }
   public * getDependencies(): Generator<Flower> {
     yield this;
   }
@@ -67,9 +64,9 @@ export class Flower {
     
   }
   public computePetals(): Loopable<PetalTerraform.Base> {
-    throw Error('logic missing');
+    throw Error('script missing');
   }
-  public async cultivate(serviceMap: ServiceMap) {
+  public async cultivate(serviceMap: ServiceMap.Full) {
     
     // This function is called once all Flowers for a given Garden have been constructed, but
     // before any petals have been generated. This step allows Flowers to act on the global state
@@ -87,11 +84,11 @@ export type FlowerCtor = (new (args: any) => Flower) & {
   getAwsServices: () => Iterable<Soil.LocalStackAwsService>
 };
 
-type SeedBankFlowers<R extends SeedBank<any>, M extends 'real' | 'test'> = R extends SeedBank<infer Flowers>
+type SeedBankFlowers<R extends SeedBank<any>, M extends 'real' | 'fake'> = R extends SeedBank<infer Flowers>
   ? { [K in keyof Flowers]: Flowers[K][M] }
   : never;
 
-export class SeedBank<Flowers extends { [K: string]: { real: FlowerCtor, test: FlowerCtor } } = Obj<never>> {
+export class SeedBank<Flowers extends { [K: string]: { real: FlowerCtor, fake: FlowerCtor } } = Obj<never>> {
   
   // Note maintaining a duality of classes for each Flower (one for testing, one for remote deploy)
   // keeps test functionality out of deployed code bundles. If a single class supported both test
@@ -102,6 +99,12 @@ export class SeedBank<Flowers extends { [K: string]: { real: FlowerCtor, test: F
     this.flowers = {}[merge](flowers) as Flowers; // TODO: I think the typing looseness here is that `merge` uses `DeepMerge`, which doesn't handle generic indexes well; `Flowers` uses a generic index
   }
   
+  public getFlower<K extends keyof Flowers, Mode extends 'real' | 'fake'>(name: K, mode: Mode): Flowers[K][Mode] {
+    // TODO: `mode` is being passed at the wrong level... Flowers mid-deploy may request Flower
+    // constructors; they don't know which mode to request!
+    return this.flowers[name][mode];
+  }
+    
   getAwsServices() {
     const services = new Set<Soil.LocalStackAwsService>();
     for (const [ _, { real } ] of this.flowers[walk]())
@@ -110,10 +113,11 @@ export class SeedBank<Flowers extends { [K: string]: { real: FlowerCtor, test: F
     return services[toArr](v => v);
   }
   
-  add<MoreFlowers extends Obj<{ real: typeof Flower, test: typeof Flower }>>(flowers: MoreFlowers): SeedBank<Omit<Flowers, keyof MoreFlowers> & MoreFlowers> {
+  
+  add<MoreFlowers extends Obj<{ real: typeof Flower, fake: typeof Flower }>>(flowers: MoreFlowers): SeedBank<Omit<Flowers, keyof MoreFlowers> & MoreFlowers> {
     return new SeedBank({ ...this.flowers, ...flowers } as any);
   }
-  get<Mode extends 'real' | 'test'>(garden: Garden<any, any>, mode: Mode): SeedBankFlowers<SeedBank<Flowers>, Mode> {
+  get<Mode extends 'real' | 'fake'>(garden: Garden<any, any>, mode: Mode): SeedBankFlowers<SeedBank<Flowers>, Mode> {
     
     return this.flowers[map]((v) => {
       
@@ -130,50 +134,54 @@ export class SeedBank<Flowers extends { [K: string]: { real: FlowerCtor, test: F
 
 export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
   
-  public readonly pfx:       string;  // Establishes a namespace for all resources provisioned for the particular app
-  public readonly term:      string;  // Name of the system/garden
-  public readonly logger:    Logger;
-  public readonly infraFact: Fact;    // Root of the infrastructure directory
-  public readonly patioFact: Fact;    // Fact within version control, for any version-controlled infra files (e.g. .terraform.lock.hcl)
-  public readonly shedFact:  Fact;    // Storage directory for arbitrary binaries associated with infra (e.g. terraform providers) - non-version-controlled
-  public readonly debug:     boolean;
-  public readonly defaults:  Obj<any>;
-  public readonly seedBank:   SB;
+  public readonly pfx:          string;  // Establishes a namespace for all resources provisioned for the particular app
+  public readonly term:         string;  // Name of the system/garden
+  public readonly logger:       Logger;
+  public readonly infraFact:    Fact;    // Root of the infrastructure directory
+  public readonly patioFact:    Fact;    // Fact within version control, for any version-controlled infra files (e.g. .terraform.lock.hcl)
+  public readonly shedFact:     Fact;    // Storage directory for arbitrary binaries associated with infra (e.g. terraform providers) - non-version-controlled
+  public readonly debug:        boolean;
+  public readonly defaults:     Obj<any>;
+  public readonly authenticity: 'real' | 'fake';
+  public readonly seedBank:     SB;
   
-  protected survey:     (garden: Garden<SB, Orn>, flowers: SeedBankFlowers<SB, 'real' | 'test'>, add: <F extends Flower>(flower: F) => F) => Orn;
+  protected survey:     (garden: Garden<SB, Orn>, flowers: SeedBankFlowers<SB, 'real' | 'fake'>, add: <F extends Flower>(flower: F) => F) => Orn;
   protected tfProcArgs: { timeoutMs: number, env: Obj<string> };
   
-  public readonly progressiveServiceMap: ServiceMap; // The "progressive" service map is populated gradually - i.e. only after a Garden has been grown (at which point, e.g., an apigw name has resolved to an actual execute-api)
+  public readonly progressiveServiceMap: ServiceMap.Full; // The "progressive" service map is populated gradually - i.e. only after a Garden has been grown (at which point, e.g., an apigw name has resolved to an actual execute-api)
+  public readonly serviceMap: ServiceMap.Full; // Synonym
   
   constructor(args: {
     
-    pfx:        string,
-    term:       string,
-    logger:     Logger,
-    infraFact:  Fact,
-    patioFact:  Fact,
-    shedFact:   Fact,
-    debug:      boolean,
-    defaults?:  Obj<any>,
+    pfx:           string,
+    term?:         string,
+    logger:        Logger,
+    infraFact:     Fact,
+    patioFact:     Fact,
+    shedFact:      Fact,
+    debug?:        boolean,
+    authenticity?: 'real' | 'fake',
+    defaults?:     Obj<any>,
     
     seedBank:   SB,
-    survey:     (garden: Garden<any, any>, flowers: SeedBankFlowers<SB, 'real' | 'test'>, add: <F extends Flower>(flower: F) => F) => Orn
+    survey:     (garden: Garden<any, any>, flowers: SeedBankFlowers<SB, 'real' | 'fake'>, add: <F extends Flower>(flower: F) => F) => Orn
     
   }) {
     
     this.pfx = args.pfx;
-    this.term = args.term;
+    this.term = args.term ?? args.pfx;
     this.logger = args.logger;
     this.infraFact = args.infraFact;
     this.patioFact = args.patioFact;
     this.shedFact = args.shedFact;
-    this.debug = args.debug;
+    this.debug = args.debug ?? false;
+    this.authenticity = args.authenticity ?? 'real';
     this.defaults = { region: 'ca-central-1' }[cl.merge](args.defaults ?? {});
     
     this.seedBank = args.seedBank;
     this.survey = args.survey;
     
-    this.progressiveServiceMap = {};
+    this.serviceMap = this.progressiveServiceMap = {};
     
     // Settings passed to all `terraform` proc calls
     const verbosity: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'none' = this.debug ? 'debug' : 'none';
@@ -189,7 +197,7 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
     
   }
   
-  protected async getPetals<Mode extends 'real' | 'test' = 'real'>(mode?: Mode) {
+  protected async getPetals<Mode extends 'real' | 'fake' = 'real'>(mode?: Mode) {
     
     // TODO: We always use the "real" flowers from the seed bank - this is part of the shift to
     // localStack; we always generate genuine terraform and apply it to the docker localStack.
@@ -213,11 +221,11 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
     // Example service map:
     //    | {
     //    |   'domain/my-domain.com': { addr: 'domain/my-domain.com' },
-    //    |   'apiGw/ca-central-1/http/pfx-coolGateway': { addr: 'apiidxyz.execute-api.ca-central-1.amazonaws.com', port: 443, http: { path: [ 'stage0' ] } }
-    //    |   'cfDistro/pfx-coolCdn': { addr: resolved('cloudfront_distribution.my_cf_distro.domain_name'),    port: 443, http: { path: [] } }
+    //    |   'awsApiGateway/ca-central-1/http/pfx-coolGateway': { addr: 'apiidxyz.execute-api.ca-central-1.amazonaws.com', port: 443, http: { path: [ 'stage0' ] } }
+    //    |   'awsCloudfrontDistribution/http/pfx-coolCdn': { addr: resolved('cloudfront_distribution.my_cf_distro.domain_name'),    port: 443, http: { path: [] } }
     //    | }
     const flowers = seenFlowers[toArr](v => v);
-    const serviceMap = flowers.reduce((m, v) => Object.assign(m, v.getServiceMapTf()), {} as ServiceMap);
+    const serviceMap = flowers.reduce((m, v) => Object.assign(m, v.getServiceMapTf()), {} as ServiceMap.Full);
     await Promise.all(flowers[map](f => f.cultivate(serviceMap)));
     
     // Yield all unique petals of all flowers
@@ -607,17 +615,19 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
     
   }
   
-  public async grow(deploy: { type: 'real', soil: Soil.Base } | { type: 'test' }) {
+  public async grow(soil: Soil.Base) {
     
-    if (deploy.type === 'test') throw Error('not implemented')[mod]({ type: 'test' }); // TODO: Can be nice to have local service mocks!
+    if (this.authenticity === 'fake') throw Error('not implemented')[mod]({ authenticity: 'fake' }); // TODO: Can be nice to have local service mocks!
     
-    const { bootFact, mainFact, outputs, ornaments } = await this.genTerraform(deploy.soil);
+    this.defaults.awsClientConfig = soil.getAwsClientConfig(); // TODO: Garden should be initialized with explicit aws auth; soil reads it from the garden
+    
+    const { bootFact, mainFact, outputs, ornaments } = await this.genTerraform(soil);
     
     // Init+apply both "boot" and "main", in optimistic fashion
     const isHealableTerraformApply = err => /run[^a-zA-Z0-9]+terraform init/.test(err.output as string ?? '');
     
     const err = new Error('');
-    await this.logger.scope('grow', { type: deploy.type, soil: cl.getClsName(deploy.soil) }, async logger => {
+    await this.logger.scope('grow', { soil: cl.getClsName(soil) }, async logger => {
       
       // Note that logical individual tf operations are handled by `this.logicalTfXxx` methods;
       // here, we are doing a *logical project spawn* - this involves coordinating the "boot" tf
@@ -660,13 +670,9 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
         fact: mainFact,
         term: 'output',
         cmd: 'terraform output -json',
-        opts: {
-          env: {
-            TF_LOG: '' // Always prevent verbose output here - it breaks the json parse!!
-          }
-        }
+        opts: { env: { TF_LOG: '' } } // Always prevent verbose output here - it breaks the json parse!!
       });
-      const tfOutputJson = snakeKeysToCamel(JSON.parse(tfOutputRaw));
+      const tfOutputJson = snakeKeysToCamel(JSON.parse(tfOutputRaw)); // TODO: `snakeKeysToCamel` needed? I suspect just the 1st level of keys is snake-cased...
       
       const outputVals = await Promise[cl.allArr](outputs.map(output => output.getOutput(tfOutputJson)));
       
@@ -681,7 +687,7 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
     
     Object.assign(this.progressiveServiceMap, output[cl.at]('serviceMap', {}));
     
-    const rake = () => this.logger.scope('rake', { type: deploy.type, soil: cl.getClsName(deploy.soil) }, async logger => {
+    const rake = () => this.logger.scope('rake', { soil: cl.getClsName(soil) }, async logger => {
       
       logger = Logger.dummy; // Make "rake" log as if it were one opaque operation
       
@@ -707,3 +713,4 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
 export * from './petal/terraform/terraform.ts';
 export * from './soil/soil.ts';
 export * from './util/aws.ts';
+export * from './util/pollen.ts';

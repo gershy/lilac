@@ -1,5 +1,5 @@
 import '@gershy/clearing';
-import slashEscape from '../../util/slashEscape.ts';
+import slashEscape from '@gershy/util-slash-escape';
 import Petal from '../petal.ts';
 import ph from '@gershy/util-phrasing';
 
