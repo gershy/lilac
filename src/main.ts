@@ -83,56 +83,7 @@ export abstract class Flower {
 export type FlowerCtor = (new (args: any) => Flower) & {
   getAwsServices: () => Iterable<Soil.LocalStackAwsService>
 };
-
-type SeedBankFlowers<R extends SeedBank<any>, M extends 'real' | 'fake'> = R extends SeedBank<infer Flowers>
-  ? { [K in keyof Flowers]: Flowers[K][M] }
-  : never;
-
-export class SeedBank<Flowers extends { [K: string]: { real: FlowerCtor, fake: FlowerCtor } } = Obj<never>> {
-  
-  // Note maintaining a duality of classes for each Flower (one for testing, one for remote deploy)
-  // keeps test functionality out of deployed code bundles. If a single class supported both test
-  // and prod functionality they would be bundled together, inflating prod
-  
-  protected flowers: Flowers;
-  constructor(flowers: Flowers) {
-    this.flowers = {}[merge](flowers) as Flowers; // TODO: I think the typing looseness here is that `merge` uses `DeepMerge`, which doesn't handle generic indexes well; `Flowers` uses a generic index
-  }
-  
-  public getFlower<K extends keyof Flowers, Mode extends 'real' | 'fake'>(name: K, mode: Mode): Flowers[K][Mode] {
-    // TODO: `mode` is being passed at the wrong level... Flowers mid-deploy may request Flower
-    // constructors; they don't know which mode to request!
-    return this.flowers[name][mode];
-  }
-    
-  getAwsServices() {
-    const services = new Set<Soil.LocalStackAwsService>();
-    for (const [ _, { real } ] of this.flowers[walk]())
-      for (const awsService of real.getAwsServices())
-        services.add(awsService);
-    return services[toArr](v => v);
-  }
-  
-  
-  add<MoreFlowers extends Obj<{ real: typeof Flower, fake: typeof Flower }>>(flowers: MoreFlowers): SeedBank<Omit<Flowers, keyof MoreFlowers> & MoreFlowers> {
-    return new SeedBank({ ...this.flowers, ...flowers } as any);
-  }
-  get<Mode extends 'real' | 'fake'>(garden: Garden<any, any>, mode: Mode): SeedBankFlowers<SeedBank<Flowers>, Mode> {
-    
-    return this.flowers[map]((v) => {
-      
-      // This function returns a Flower constructor that automatically assigns `context` and `soil` properties
-      const Flower = v[mode];
-      return function(args: Obj<any>) {
-        return new Flower({ garden, ...args });
-      } as any as typeof Flower;
-      
-    });
-  }
-  
-};
-
-export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
+export class Garden<SB extends Obj<FlowerCtor>, Orn /* ornaments */> {
   
   public readonly pfx:          string;  // Establishes a namespace for all resources provisioned for the particular app
   public readonly term:         string;  // Name of the system/garden
@@ -143,9 +94,9 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
   public readonly debug:        boolean;
   public readonly defaults:     Obj<any>;
   public readonly authenticity: 'real' | 'fake';
-  public readonly seedBank:     SB;
   
-  protected survey:     (garden: Garden<SB, Orn>, flowers: SeedBankFlowers<SB, 'real' | 'fake'>, add: <F extends Flower>(flower: F) => F) => Orn;
+  protected seedBank:     SB;
+  protected survey:     (garden: Garden<SB, Orn>, flowers: SB, add: <F extends Flower>(flower: F) => F) => Orn
   protected tfProcArgs: { timeoutMs: number, env: Obj<string> };
   
   public readonly progressiveServiceMap: ServiceMap.Full; // The "progressive" service map is populated gradually - i.e. only after a Garden has been grown (at which point, e.g., an apigw name has resolved to an actual execute-api)
@@ -163,8 +114,8 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
     authenticity?: 'real' | 'fake',
     defaults?:     Obj<any>,
     
-    seedBank:   SB,
-    survey:     (garden: Garden<any, any>, flowers: SeedBankFlowers<SB, 'real' | 'fake'>, add: <F extends Flower>(flower: F) => F) => Orn
+    seedBank:      SB,
+    survey:        (garden: Garden<any, any>, flowers: SB, add: <F extends Flower>(flower: F) => F) => Orn
     
   }) {
     
@@ -180,7 +131,6 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
     
     this.seedBank = args.seedBank;
     this.survey = args.survey;
-    
     this.serviceMap = this.progressiveServiceMap = {};
     
     // Settings passed to all `terraform` proc calls
@@ -197,6 +147,14 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
     
   }
   
+  public getAwsServices() {
+    const services = new Set<Soil.LocalStackAwsService>();
+    for (const [ _, FlowerCtor ] of this.seedBank[walk]())
+      for (const awsService of FlowerCtor.getAwsServices())
+        services.add(awsService);
+    return services[toArr](v => v);
+  }
+  
   protected async getPetals<Mode extends 'real' | 'fake' = 'real'>(mode?: Mode) {
     
     // TODO: We always use the "real" flowers from the seed bank - this is part of the shift to
@@ -205,10 +163,18 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
     // that would be the time to add "fake" flowers alongside each real flower, and start
     // conditionally calling `this.registry.get('fake')`... (will need an additional `mode: 'real' | 'fake'` arg here)
     
+    const seedBank = this.seedBank[map]((Flower) => {
+      
+      // This function returns a Flower constructor that automatically assigns `context` and `soil` properties
+      const garden = this;
+      return function(args: Obj<any>) { return new Flower({ garden, ...args }); };
+      
+    }) as any as SB;
+    
     const seenFlowers = new Set<Flower>();
     const ornaments = await this.survey(
       this,
-      this.seedBank.get(this, mode ?? 'real') as SeedBankFlowers<SB, Mode>,
+      seedBank,
       <F extends Flower>(f: F) => (seenFlowers.add(f), f)
     );
     
@@ -713,4 +679,4 @@ export class Garden<SB extends SeedBank<any>, Orn /* ornaments */> {
 export * from './petal/terraform/terraform.ts';
 export * from './soil/soil.ts';
 export * from './util/aws.ts';
-export * from './util/pollen.ts';
+export * from '../../pollen/src/main.ts';

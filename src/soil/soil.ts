@@ -106,7 +106,7 @@ export namespace Soil {
       // - sts is used for credential validation
       // - iam is needed for role creation
       const overheadAwsServices: LocalStackAwsService[] = [ 's3', 'dynamodb', 'sts', 'iam' ];
-      return new Set([ ...overheadAwsServices, ...this.garden.seedBank.getAwsServices() ]);
+      return new Set([ ...overheadAwsServices, ...this.garden.getAwsServices() ]);
       
     }
     

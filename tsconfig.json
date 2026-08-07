@@ -1,5 +1,5 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {},
-  "include": [ "src/**/*.ts" ]
+  "include": [ "src/**/*.ts", "../pollen/src/pollen.ts" ]
 }

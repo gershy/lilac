@@ -1,5 +1,5 @@
 import { assertEqual, cmpAny, testRunner } from '../build/utils.test.ts';
-import { Garden, Flower, SeedBank, PetalTerraform } from './main.ts';
+import { Garden, Flower, PetalTerraform } from './main.ts';
 import { Fact, rootFact, tempFact } from '@gershy/disk';
 import hash from '@gershy/util-hash';
 import http from '@gershy/util-http';
@@ -250,11 +250,6 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
         }
         
       };
-      class TestInfraFake extends TestInfra {};
-      
-      const seedBank = new SeedBank({
-        MyLilac: { real: TestInfra, fake: TestInfraFake }
-      });
       
       const garden = new Garden({
         term:      'hi',
@@ -264,8 +259,8 @@ entry({ name: 'lilac', codec, inp: { reg: '^', effort: 0 }, fn: async (logger, {
         logger,
         debug:     false,
         pfx:       'lilactest',
-        seedBank: seedBank,
-        survey: (ctx, seedBank, add) => add(new seedBank.MyLilac({ name: 'testyman' }))
+        seedBank: { TestInfra },
+        survey: (ctx, seedBank, add) => add(new seedBank.TestInfra({ name: 'testyman' }))
       });
       
       const soil = new Soil.LocalStack({ logger, garden });
