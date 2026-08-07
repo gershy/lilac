@@ -15,18 +15,82 @@ import { Soil } from './soil/soil.ts';
 import proc, { type ProcOpts } from '@gershy/nodejs-proc';
 import Logger from '@gershy/logger';
 import retry from '@gershy/util-retry';
-import type { ServiceMap } from './main.ts';
+import type { AwsRegionTerm } from './main.ts';
 
-const { isCls, skip } = cl;
+const { inCls, isCls, getClsName, skip } = cl;
+
+const at:       typeof cl.at       = cl.at;
 const toArr:    typeof cl.toArr    = cl.toArr;
+const allArr:   typeof cl.allArr   = cl.allArr;
 const allObj:   typeof cl.allObj   = cl.allObj;
 const has:      typeof cl.has      = cl.has;
 const map:      typeof cl.map      = cl.map;
 const mod:      typeof cl.mod      = cl.mod;
 const walk:     typeof cl.walk     = cl.walk;
+const fire:     typeof cl.fire     = cl.fire;
+const mapk:     typeof cl.mapk     = cl.mapk;
 const merge:    typeof cl.merge    = cl.merge;
+const empty:    typeof cl.empty    = cl.empty;
+const slice:    typeof cl.slice    = cl.slice;
 const upper:    typeof cl.upper    = cl.upper;
 const baseline: typeof cl.baseline = cl.baseline;
+
+export namespace ServiceMap {
+  
+  export type Domain = `${string}.${string}`;
+  export type DomainMap = {
+    [K in `domain/${Domain}`]: {
+      port?: number,
+      http?: { path?: string[] }
+    }
+  };
+
+  export type AwsFargateClusterName = string;
+  export type AwsFargateFamilyName = string;
+  export type AwsFargateMap = {
+    [K in `awsFargate/${AwsRegionTerm}/${AwsFargateClusterName}/${AwsFargateFamilyName}`]: { /* nothing! */ }
+  };
+  
+  export type AwsS3Bucket = string;
+  export type AwsS3BucketMap = {
+    [K in `awsSimpleStorageService/${AwsRegionTerm}/${AwsS3Bucket}`]: { /* nothing! */ }
+  };
+  
+  export type AwsDynamoDbTable = string;
+  export type AwsDynamoDbMap = {
+    [K in `awsDynamoDb/${AwsRegionTerm}/${AwsDynamoDbTable}`]: { /* nothing! */ }
+  };
+
+  export type AwsApiGatewayName = string;
+  export type AwsApiGatewayMap = {
+    [K in `awsApiGateway/${AwsRegionTerm}/${'http' | 'sokt'}/${AwsApiGatewayName}`]: {
+      addr: Domain, // Resolved post-tf-apply
+      port?: number,
+      http?: { path?: string[] }, // Includes apigw stage name, resolved post-tf-apply
+    }
+  };
+
+  export type AwsCloudfrontDistributionName = string;
+  export type AwsCloudfrontDistributionMap = {
+    [K in `awsCloudfrontDistribution/${'http' | 'sokt'}/${AwsCloudfrontDistributionName}`]: {
+      addr: Domain, // Resolved post-tf-apply
+      port?: number,
+      http?: { path?: string[] }
+    }
+  };
+
+  export type Full = {}
+    // & Obj<any>
+    & DomainMap
+    & AwsFargateMap
+    & AwsS3BucketMap
+    & AwsDynamoDbMap
+    & AwsApiGatewayMap
+    & AwsCloudfrontDistributionMap;
+  
+  export type Key = keyof Full;
+  
+};
 
 export abstract class Flower {
   
@@ -41,7 +105,7 @@ export abstract class Flower {
   // TODO: Remove localstack lol
   public static getAwsServices(): readonly Soil.LocalStackAwsService[] { return []; }
   
-  protected garden:     Garden<any, any>;
+  protected garden:         Garden<any, any>;
   protected computedPetals: null | Promise<PetalTerraform.Base[]>;
   constructor(args: { garden?: Garden<any, any> } /* All Flower subclasses must accept a single Object argument! */) {
     if (!args.garden) throw Error('garden missing');
@@ -58,7 +122,7 @@ export abstract class Flower {
   public getPetals(): Promise<PetalTerraform.Base[]> & { _noOverride: true } {
     
     if (!this.computedPetals)
-      this.computedPetals = Promise.resolve(this.computePetals()[cl.toArr](v => v));
+      this.computedPetals = Promise.resolve(this.computePetals()[toArr](v => v));
     
     return this.computedPetals as (typeof this.computedPetals) & { _noOverride: true };
     
@@ -127,7 +191,7 @@ export class Garden<SB extends Obj<FlowerCtor>, Orn /* ornaments */> {
     this.shedFact = args.shedFact;
     this.debug = args.debug ?? false;
     this.authenticity = args.authenticity ?? 'real';
-    this.defaults = { region: 'ca-central-1' }[cl.merge](args.defaults ?? {});
+    this.defaults = { region: 'ca-central-1' }[merge](args.defaults ?? {});
     
     this.seedBank = args.seedBank;
     this.survey = args.survey;
@@ -139,7 +203,7 @@ export class Garden<SB extends Obj<FlowerCtor>, Orn /* ornaments */> {
       timeoutMs: 0, // Disable timeouts - last thing we need is a timeout corrupting a terraform action!
       env: {
         ...process.env,
-        TF_LOG:             verbosity === 'none' ? '' : verbosity[cl.upper](),
+        TF_LOG:             verbosity === 'none' ? '' : verbosity[upper](),
         TF_DATA_DIR:        '',
         TF_CLI_CONFIG_FILE: ''
       } as Obj<string>
@@ -253,7 +317,7 @@ export class Garden<SB extends Obj<FlowerCtor>, Orn /* ornaments */> {
             
             // This function allows a caller to easily write petals into the terraform project
             
-            if (cl.inCls(petal, PetalTerraform.Output)) {
+            if (inCls(petal, PetalTerraform.Output)) {
               
               // Outputs are collected and processed after the `terraform apply`
               outputs.push(petal);
@@ -438,7 +502,7 @@ export class Garden<SB extends Obj<FlowerCtor>, Orn /* ornaments */> {
             .map(block => block.split('\n')[map](ln => ln.slice('| '.length).trim() || skip).join('\n'))
             .join('\n\n');
           
-          throw err[cl.mod]({ output: outputErrors, logFp: logFact.fsp() });
+          throw err[mod]({ output: outputErrors, logFp: logFact.fsp() });
           
         }
         
@@ -541,7 +605,7 @@ export class Garden<SB extends Obj<FlowerCtor>, Orn /* ornaments */> {
             });
             
           };
-          const logGroups = cl.isCls(err.output, String) ? getAdoptableLogGroups(err.output) : [];
+          const logGroups = isCls(err.output, String) ? getAdoptableLogGroups(err.output) : [];
           if (!logGroups.length) throw err;
           
           logger.log({ $$: 'adoptLogGroups', logGroups });
@@ -593,7 +657,7 @@ export class Garden<SB extends Obj<FlowerCtor>, Orn /* ornaments */> {
     const isHealableTerraformApply = err => /run[^a-zA-Z0-9]+terraform init/.test(err.output as string ?? '');
     
     const err = new Error('');
-    await this.logger.scope('grow', { soil: cl.getClsName(soil) }, async logger => {
+    await this.logger.scope('grow', { soil: getClsName(soil) }, async logger => {
       
       // Note that logical individual tf operations are handled by `this.logicalTfXxx` methods;
       // here, we are doing a *logical project spawn* - this involves coordinating the "boot" tf
@@ -621,13 +685,13 @@ export class Garden<SB extends Obj<FlowerCtor>, Orn /* ornaments */> {
         
       });
       
-    }).catch(cause => err[cl.fire]({ msg: 'grow failed', cause }));
+    }).catch(cause => err[fire]({ msg: 'grow failed', cause }));
     
     const output = await (async () => {
       
       const snakeKeysToCamel = (obj: any) => {
-        if (!cl.isCls(obj, Object)) return obj;
-        return obj[cl.mapk]((v, k) => [ phrasing('snake->camel', k), snakeKeysToCamel(v) ]);
+        if (!isCls(obj, Object)) return obj;
+        return obj[mapk]((v, k) => [ phrasing('snake->camel', k), snakeKeysToCamel(v) ]);
       };
       
       // Use terraform cli to get output json
@@ -640,34 +704,34 @@ export class Garden<SB extends Obj<FlowerCtor>, Orn /* ornaments */> {
       });
       const tfOutputJson = snakeKeysToCamel(JSON.parse(tfOutputRaw)); // TODO: `snakeKeysToCamel` needed? I suspect just the 1st level of keys is snake-cased...
       
-      const outputVals = await Promise[cl.allArr](outputs.map(output => output.getOutput(tfOutputJson)));
+      const outputVals = await Promise[allArr](outputs.map(output => output.getOutput(tfOutputJson)));
       
       // Merge all outputs
       return outputVals.reduce((m, v) => {
-        if (cl.isCls(v, Object)) m[cl.merge](v);
-        else                     m._unknownOutputs.push(v);
+        if (isCls(v, Object)) m[merge](v);
+        else                  m._unknownOutputs.push(v);
         return m;
       }, { _unknownOutputs: [] });
       
     })();
     
-    Object.assign(this.progressiveServiceMap, output[cl.at]('serviceMap', {}));
+    Object.assign(this.progressiveServiceMap, output[at]('serviceMap', {}));
     
-    const rake = () => this.logger.scope('rake', { soil: cl.getClsName(soil) }, async logger => {
+    const rake = () => this.logger.scope('rake', { soil: getClsName(soil) }, async logger => {
       
       logger = Logger.dummy; // Make "rake" log as if it were one opaque operation
       
       await this.logicalTfDestroy({ logger, fact: mainFact });
       await this.logicalTfDestroy({ logger, fact: bootFact });
       
-    }).catch(cause => err[cl.fire]({ msg: 'rake failed', cause }));
+    }).catch(cause => err[fire]({ msg: 'rake failed', cause }));
     
     const result = { output, ornaments, rake };
     
     const { manualRequirements = {} } = output;
-    if (!manualRequirements[cl.empty]()) throw Error('requirements unsatisfied')[cl.mod]({
+    if (!manualRequirements[empty]()) throw Error('requirements unsatisfied')[mod]({
       manualRequirements,
-      ...result[cl.slice]([ 'rake' ])
+      ...result[slice]([ 'rake' ])
     });
     
     return result;
@@ -679,4 +743,3 @@ export class Garden<SB extends Obj<FlowerCtor>, Orn /* ornaments */> {
 export * from './petal/terraform/terraform.ts';
 export * from './soil/soil.ts';
 export * from './util/aws.ts';
-export * from '../../pollen/src/main.ts';
