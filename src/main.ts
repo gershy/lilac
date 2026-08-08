@@ -1,10 +1,8 @@
 // TODO:
 
 // A more generic (beyond just tf) provider is very hard to support due to the multiplicity of
-// provider/petal combos - e.g. "api" flower would need to support ,api.getCloudformationPetals,
+// provider/petal combos - e.g. "api" flower would need to support api.getCloudformationPetals,
 // api.getTerraformPetals, etc... supporting just terraform for now
-
-// Support test-mode (Flowers need to be able to do setup, share config, write to volumes, etc)
 
 import { PetalTerraform } from './petal/terraform/terraform.ts';
 import { tempFact, type Fact } from '@gershy/disk';
@@ -15,7 +13,6 @@ import { Soil } from './soil/soil.ts';
 import proc, { type ProcOpts } from '@gershy/nodejs-proc';
 import Logger from '@gershy/logger';
 import retry from '@gershy/util-retry';
-import type { AwsRegionTerm } from './main.ts';
 
 const { inCls, isCls, getClsName, skip } = cl;
 
@@ -35,7 +32,14 @@ const slice:    typeof cl.slice    = cl.slice;
 const upper:    typeof cl.upper    = cl.upper;
 const baseline: typeof cl.baseline = cl.baseline;
 
+// TODO: test-mode Flowers; supply a `seedBank` full of test mock Flower instances - a base
+// `PlasticFlower extends Flower` class is cute and could facilitate mocks!
+
 export namespace ServiceMap {
+  
+  // Note we could `import { AwsRegionTerm } from './main.ts' but that is a very long union of
+  // strings which clutters up all the downstream typing!
+  export type AwsRegionTerm = `${string}-${string}-${number}`; // Like "ca-central-1"
   
   export type Domain = `${string}.${string}`;
   export type DomainMap = {
@@ -88,6 +92,7 @@ export namespace ServiceMap {
     & AwsApiGatewayMap
     & AwsCloudfrontDistributionMap;
   
+  
   export type Key = keyof Full;
   
 };
@@ -95,7 +100,7 @@ export namespace ServiceMap {
 export abstract class Flower {
   
   // TODO: The downside of having this static is that different instances may use different
-  // services - e.g. api gateway instance may have "useEdge: true", in which case we'd like to
+  // services - e.g. api gateway instance may have "enableCdn: true", in which case we'd like to
   // include cloudfront and omit it otherwise... but having it on the instance is annoying since
   // we want to enumerate all services *before* instantiating any Flowers... probably better this
   // way? And heirarchical design can probably avoid most unecessary service inclusion...
